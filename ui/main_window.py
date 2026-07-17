@@ -195,7 +195,8 @@ class MainWindow(QWidget):
         if not results:
             self.ocr_text.setText("未检测到文字")
         else:
-            sorted_results = sorted(results, key=lambda r: r["confidence"], reverse=True)
+            # 按阅读顺序排序：先从上到下(Y)，再从左到右(X)
+            sorted_results = sorted(results, key=lambda r: (r["box"][1], r["box"][0]))
             text_lines = [r["text"] for r in sorted_results]
             display_text = "\n".join(text_lines)
             self.ocr_text.setText(display_text)
