@@ -61,27 +61,27 @@ class RegionOverlay(QWidget):
             logger.info("测试框已隐藏")
 
     def paintEvent(self, event):
-        """绘制红色边框"""
+        """绘制红色边框（精确对齐窗口边缘）"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
         rect = self.rect()
+        w, h = rect.width(), rect.height()
 
-        # 红色边框（2px 宽，边框绘制在窗口内边界）
+        # 红色边框绘制在窗口外缘，标记精确的截图区域
         pen = QPen(QColor(220, 40, 40, 220), 2)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
-        painter.drawRect(2, 2, rect.width() - 4, rect.height() - 4)
+        painter.drawRect(0, 0, w - 1, h - 1)
 
-        # 四角标记
+        # 四角标记（1px 外扩，突出显示）
         cs = 5
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(220, 40, 40, 200))
-        w, h = rect.width(), rect.height()
-        painter.drawRect(2, 2, cs, cs)
-        painter.drawRect(w - 2 - cs, 2, cs, cs)
-        painter.drawRect(2, h - 2 - cs, cs, cs)
-        painter.drawRect(w - 2 - cs, h - 2 - cs, cs, cs)
+        painter.drawRect(0, 0, cs, cs)
+        painter.drawRect(w - cs, 0, cs, cs)
+        painter.drawRect(0, h - cs, cs, cs)
+        painter.drawRect(w - cs, h - cs, cs, cs)
 
     def closeEvent(self, event):
         logger.debug("测试框关闭")
