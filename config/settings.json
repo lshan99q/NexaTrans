@@ -1,9 +1,9 @@
 {
     "region": {
-        "x": 626,
-        "y": 76,
-        "width": 520,
-        "height": 177
+        "x": 650,
+        "y": 178,
+        "width": 500,
+        "height": 270
     },
     "overlay": {
         "opacity": 0.5,
