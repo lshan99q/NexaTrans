@@ -138,8 +138,8 @@ class SelectorWindow(QWidget):
         # 获取窗口尺寸
         window_rect = self.rect()
 
-        # 绘制半透明遮罩
-        mask_color = QColor(0, 0, 0, 120)  # 半透明黑色
+        # 绘制深色半透明遮罩（类似截图工具的暗化效果）
+        mask_color = QColor(0, 0, 0, 140)  # 加深遮罩
         painter.fillRect(window_rect, mask_color)
 
         if self._start_point is not None and self._end_point is not None:
@@ -158,12 +158,29 @@ class SelectorWindow(QWidget):
                 painter.fillRect(rect, clear_brush)
                 painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
 
-                # 绘制选择边框
-                border_opacity = 180 if self.overlay_config.get("border", True) else 0
+                # 绘制红色选择边框（类似截图工具风格）
+                border_opacity = 200 if self.overlay_config.get("border", True) else 0
                 if border_opacity > 0:
-                    pen = QPen(QColor(0, 120, 255, border_opacity), 2)
+                    # 外边框（亮红色）
+                    pen = QPen(QColor(220, 40, 40, border_opacity), 3)
                     painter.setPen(pen)
                     painter.drawRect(rect)
+
+                    # 在四个角绘制小方块（截图工具风格）
+                    corner_size = 6
+                    corners = [
+                        (rect.topLeft(), 1, 1),
+                        (rect.topRight(), -corner_size, 1),
+                        (rect.bottomLeft(), 1, -corner_size),
+                        (rect.bottomRight(), -corner_size, -corner_size)
+                    ]
+                    corner_brush = QBrush(QColor(220, 40, 40, 220))
+                    for pos, dx, dy in corners:
+                        painter.fillRect(
+                            pos.x() + dx, pos.y() + dy,
+                            corner_size, corner_size,
+                            corner_brush
+                        )
 
                 # 在矩形中心或左上角显示尺寸信息
                 self._draw_size_label(painter, rect)
