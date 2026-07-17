@@ -1,0 +1,12 @@
+{
+    "region": {
+        "x": 400,
+        "y": 900,
+        "width": 500,
+        "height": 80
+    },
+    "overlay": {
+        "opacity": 0.5,
+        "border": true
+    }
+}

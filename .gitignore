@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Config (keep template, ignore local modifications)
+# config/settings.json is tracked intentionally
+
+# Planning documents & tokens
+项目规划.txt
+github token.txt
+*.token
+token.*
