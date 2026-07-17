@@ -88,10 +88,9 @@ class OCREngine:
             img_array = np.array(image)
 
             # 3. 执行 OCR（使用速度优化参数）
+            # 注意: 不使用 paragraph=True，保持返回 (bbox, text, confidence) 格式
             results = self._reader.readtext(
                 img_array,
-                # 速度优化参数
-                paragraph=True,           # 段落模式：合并相邻文字，减少结果数
                 text_threshold=0.7,       # 提高文字阈值，过滤低置信度结果
                 low_text=0.4,             # 低文字阈值
                 link_threshold=0.4,       # 链接阈值
@@ -103,7 +102,7 @@ class OCREngine:
                 add_margin=0.1            # 边框余量
             )
 
-            # 4. 转换结果格式
+            # 4. 转换结果格式: 每项为 (bbox, text, confidence)
             ocr_results = []
             for (bbox, text, confidence) in results:
                 x_coords = [p[0] for p in bbox]
