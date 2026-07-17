@@ -23,30 +23,32 @@ logger = logging.getLogger("NexaTrans.MainWindow")
 class OCRWorker(QThread):
     """OCR 工作线程：在后台执行截图和识别，避免卡死 UI"""
 
-    finished = Signal(list)   # 识别完成
-    error = Signal(str)       # 出错
-    progress = Signal(str)    # 进度提示
+    finished = Signal(list, float)   # (识别结果, 耗时秒数)
+    error = Signal(str)              # 出错
+    progress = Signal(str)           # 进度提示
 
     def __init__(self, region: dict, engine: OCREngine):
         super().__init__()
         self._region = region
-        self._engine = engine  # 共享引擎，避免重复加载模型
+        self._engine = engine
 
     def run(self):
+        import time
+        start = time.time()
         try:
-            # 1. 截图
             self.progress.emit("正在截图...")
             image = capture_region(self._region)
             if image is None:
                 self.error.emit("截图失败，请检查区域设置")
                 return
 
-            # 2. 识别
             self.progress.emit("正在识别文字...")
             results = self._engine.recognize(image)
-            self.finished.emit(results)
+            elapsed = time.time() - start
+            self.finished.emit(results, elapsed)
 
         except Exception as e:
+            elapsed = time.time() - start
             logger.error(f"OCR 工作线程异常: {e}", exc_info=True)
             self.error.emit(f"OCR 识别出错: {str(e)}")
 
@@ -190,7 +192,7 @@ class MainWindow(QWidget):
         """OCR 进度更新"""
         self.ocr_text.setText(message)
 
-    def _on_ocr_finished(self, results: list):
+    def _on_ocr_finished(self, results: list, elapsed: float):
         """OCR 识别完成"""
         if not results:
             self.ocr_text.setText("未检测到文字")
@@ -202,8 +204,9 @@ class MainWindow(QWidget):
             self.ocr_text.setText(display_text)
             logger.info(f"OCR 完成: {len(text_lines)} 行文字")
 
+        # 显示耗时
+        self.test_ocr_btn.setText(f"测试OCR ({elapsed:.1f}s)")
         self.test_ocr_btn.setEnabled(True)
-        self.test_ocr_btn.setText("测试OCR")
         self._ocr_worker = None
 
     def _on_ocr_error(self, message: str):

@@ -91,17 +91,16 @@ class OCREngine:
             results = self._reader.readtext(
                 img_array,
                 # 速度优化参数
-                paragraph=True,          # 段落模式：合并相邻文字，减少结果数
-                text_threshold=0.7,      # 提高文字阈值，过滤低置信度结果
-                low_text=0.4,            # 降低低文字阈值
-                link_threshold=0.4,      # 链接阈值
-                canvas_size=1280,        # 限制处理画布大小
-                mag_ratio=1.0,           # 放大比例，1.0 为原尺寸
-                slope_ths=0.1,           # 倾斜容差
-                ycenter_ths=0.5,         # Y 轴中心容差
-                width_ths=0.8,           # 宽度容差
-                add_margin=0.1,          # 边框余量
-                reformat=True            # 优化输出格式
+                paragraph=True,           # 段落模式：合并相邻文字，减少结果数
+                text_threshold=0.7,       # 提高文字阈值，过滤低置信度结果
+                low_text=0.4,             # 低文字阈值
+                link_threshold=0.4,       # 链接阈值
+                canvas_size=1280,         # 限制处理画布大小
+                mag_ratio=1.0,            # 放大比例，1.0 为原尺寸
+                slope_ths=0.1,            # 倾斜容差
+                ycenter_ths=0.5,          # Y 轴中心容差
+                width_ths=0.8,            # 宽度容差
+                add_margin=0.1            # 边框余量
             )
 
             # 4. 转换结果格式
