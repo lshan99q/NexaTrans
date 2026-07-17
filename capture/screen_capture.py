@@ -1,7 +1,7 @@
 """
 NexaTrans - Screen Capture
 屏幕截图模块：使用 PIL.ImageGrab 截取指定区域
-先截取全屏再裁剪，避免 bbox 坐标系统偏差
+只截取主屏幕区域（解决多显示器虚拟桌面坐标偏差）
 """
 
 import logging
@@ -35,9 +35,9 @@ def capture_region(region: dict) -> Image.Image | None:
             logger.warning(f"无效的区域尺寸: {w}x{h}")
             return None
 
-        # 先截取全屏
-        full_screen = ImageGrab.grab(all_screens=True)
-        logger.debug(f"全屏截图尺寸: {full_screen.size}")
+        # 只截取主屏幕（不含 all_screens=True，避免虚拟桌面坐标偏差）
+        full_screen = ImageGrab.grab()
+        logger.debug(f"主屏幕截图尺寸: {full_screen.size}")
 
         # 裁剪指定区域
         crop_box = (x, y, x + w, y + h)
