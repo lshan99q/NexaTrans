@@ -37,8 +37,8 @@ class RegionOverlay(QWidget):
         h = region.get("height", 0)
 
         if w > 0 and h > 0:
-            # 设置窗口位置和大小恰好覆盖所选区域
-            self.setGeometry(x - 2, y - 2, w + 4, h + 4)
+            # 窗口位置精确对应用户所选区域，不加偏移
+            self.setGeometry(x, y, w, h)
             logger.debug(f"测试框更新: ({x},{y}) {w}x{h}")
             self.update()
 
