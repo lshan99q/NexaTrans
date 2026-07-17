@@ -27,9 +27,10 @@ class OCRWorker(QThread):
     error = Signal(str)       # 出错
     progress = Signal(str)    # 进度提示
 
-    def __init__(self, region: dict):
+    def __init__(self, region: dict, engine: OCREngine):
         super().__init__()
         self._region = region
+        self._engine = engine  # 共享引擎，避免重复加载模型
 
     def run(self):
         try:
@@ -40,13 +41,9 @@ class OCRWorker(QThread):
                 self.error.emit("截图失败，请检查区域设置")
                 return
 
-            # 2. 初始化 OCR（首次会下载模型）
-            self.progress.emit("正在初始化 OCR 模型（首次需下载）...")
-            engine = OCREngine()
-
-            # 3. 识别
+            # 2. 识别
             self.progress.emit("正在识别文字...")
-            results = engine.recognize(image)
+            results = self._engine.recognize(image)
             self.finished.emit(results)
 
         except Exception as e:
@@ -62,6 +59,7 @@ class MainWindow(QWidget):
         self.config_manager = config_manager
         self._selector = None
         self._overlay = RegionOverlay()
+        self._ocr_engine = OCREngine()  # 共享 OCR 引擎（懒加载）
         self._ocr_worker = None
         self._setup_ui()
         self._load_region()
@@ -180,8 +178,8 @@ class MainWindow(QWidget):
         self.test_ocr_btn.setText("处理中...")
         self.ocr_text.setText("准备中...")
 
-        # 启动后台线程
-        self._ocr_worker = OCRWorker(region)
+        # 启动后台线程（传入共享 engine，首次会加载模型但不会阻塞 UI）
+        self._ocr_worker = OCRWorker(region, self._ocr_engine)
         self._ocr_worker.progress.connect(self._on_ocr_progress)
         self._ocr_worker.finished.connect(self._on_ocr_finished)
         self._ocr_worker.error.connect(self._on_ocr_error)
