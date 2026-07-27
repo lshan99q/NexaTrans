@@ -2,7 +2,7 @@
 NexaTrans - DBNet++ Detector
 Text detection using PaddleOCR's DBNet++ model via ONNX Runtime.
 Model is loaded once and reused across frames.
-Supports automatic image resizing for speed/accuracy tradeoff.
+Returns both boxes and confidence scores for filtering.
 """
 
 import logging
@@ -21,15 +21,6 @@ class DBNetDetector:
     """DBNet++ text detector using PaddleX create_predictor (detection only)."""
 
     def __init__(self, model_path: str = None, limit_side_len: int = 960):
-        """
-        Initialize the DBNet++ detector.
-
-        Args:
-            model_path: Optional path to custom model directory.
-            limit_side_len: Max side length for detection input.
-                            Lower = faster but may miss small text.
-                            Recommended: 640 (balanced), 960 (accurate).
-        """
         self._model_path = model_path
         self._limit_side_len = limit_side_len
         self._predictor = None
@@ -37,29 +28,22 @@ class DBNetDetector:
         self._load_model()
 
     def _load_model(self):
-        """Load the detection model once using PaddleX create_predictor."""
         try:
             from paddlex import create_predictor
         except ImportError:
             logger.critical("PaddleX not installed. Run: pip install paddleocr")
             self._loaded = False
             return
-
         try:
-            model_name = "PP-OCRv6_medium_det"
-            self._predictor = create_predictor(model_name, engine="onnxruntime")
+            self._predictor = create_predictor("PP-OCRv6_medium_det", engine="onnxruntime")
             self._loaded = True
-            logger.info(
-                f"DBNet++ detector loaded "
-                f"({model_name}, ONNX Runtime, limit={self._limit_side_len}px)"
-            )
+            logger.info(f"DBNet++ detector loaded (limit={self._limit_side_len}px)")
         except Exception as e:
             logger.error(f"Failed to load DBNet++ model: {e}", exc_info=True)
             self._loaded = False
 
     @property
     def is_loaded(self) -> bool:
-        """Check if the model is loaded and ready."""
         return self._loaded
 
     @property
@@ -70,64 +54,50 @@ class DBNetDetector:
     def limit_side_len(self, value: int):
         self._limit_side_len = max(240, min(value, 1920))
 
-    def detect(self, image: np.ndarray) -> list:
+    def detect(self, image: np.ndarray) -> dict:
         """
-        Detect text regions in an image.
-
-        Args:
-            image: numpy array (H, W, 3) in BGR format.
+        Detect text regions.
 
         Returns:
-            List of polygons, each as [x1,y1, x2,y2, x3,y3, x4,y4]
-            in the original image coordinate space.
+            {"boxes": [[x1,y1,...], ...], "scores": [0.95, ...]}
+            Empty dict if no text found or error.
         """
         if not self._loaded:
-            logger.warning("DBNet++ model not loaded, skipping detection")
-            return []
-
+            return {"boxes": [], "scores": []}
         if image is None or image.size == 0:
-            logger.warning("Empty image passed to detector")
-            return []
+            return {"boxes": [], "scores": []}
 
         try:
             h, w = image.shape[:2]
             scale_x, scale_y = 1.0, 1.0
             input_image = image
-
-            # Resize only if the image is larger than limit_side_len
-            # and the short side is at least 32px (avoid collapsing small images)
             longest = max(w, h)
             shortest = min(w, h)
-            min_short_side = 32
 
-            if HAS_CV2 and longest > self._limit_side_len and shortest >= min_short_side:
+            if HAS_CV2 and longest > self._limit_side_len and shortest >= 32:
                 scale = self._limit_side_len / longest
                 new_w = max(int(w * scale), 1)
                 new_h = max(int(h * scale), 1)
                 input_image = cv2.resize(image, (new_w, new_h))
                 scale_x = w / new_w
                 scale_y = h / new_h
-                logger.debug(
-                    f"Resized detection input: {w}x{h} -> {new_w}x{new_h} "
-                    f"(scale={scale:.3f})"
-                )
 
             results = list(self._predictor(input_image))
-
             if not results:
-                return []
+                return {"boxes": [], "scores": []}
 
             r = results[0]
             polys = r.get("dt_polys", [])
+            scores = r.get("dt_scores", [])
 
             if polys is None or len(polys) == 0:
-                return []
+                return {"boxes": [], "scores": []}
 
-            polygons = []
-            for poly in polys:
+            boxes = []
+            out_scores = []
+            for i, poly in enumerate(polys):
                 if poly is None or len(poly) < 4:
                     continue
-
                 flat = []
                 for pt in poly:
                     if hasattr(pt, "__iter__") and len(pt) >= 2:
@@ -135,13 +105,14 @@ class DBNetDetector:
                             int(round(pt[0] * scale_x)),
                             int(round(pt[1] * scale_y)),
                         ])
-
                 if len(flat) >= 8:
-                    polygons.append(flat)
+                    boxes.append(flat)
+                    score = float(scores[i]) if i < len(scores) else 0.5
+                    out_scores.append(score)
 
-            logger.debug(f"Detected {len(polygons)} text region(s) in {w}x{h} image")
-            return polygons
+            logger.debug(f"Detected {len(boxes)} regions in {w}x{h} image")
+            return {"boxes": boxes, "scores": out_scores}
 
         except Exception as e:
             logger.error(f"Detection failed: {e}", exc_info=True)
-            return []
+            return {"boxes": [], "scores": []}

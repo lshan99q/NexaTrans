@@ -1,12 +1,23 @@
 {
     "region": {
-        "x": 922,
-        "y": 216,
-        "width": 912,
-        "height": 378
+        "x": 1328,
+        "y": 37,
+        "width": 274,
+        "height": 48
     },
     "overlay": {
         "opacity": 0.5,
         "border": true
+    },
+    "text_processing": {
+        "dilate_size": 5,
+        "blur_size": 3,
+        "merge_distance": 20,
+        "height_ratio": 0.6,
+        "crop_padding": 2,
+        "min_confidence": 0.5,
+        "min_text_aspect": 1.8,
+        "max_icon_aspect": 1.4,
+        "min_area_ratio": 0.005
     }
 }

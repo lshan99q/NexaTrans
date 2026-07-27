@@ -1,96 +1,108 @@
-﻿# NexaTrans - 游戏屏幕实时 AI 翻译软件
+# NexaTrans - Game Screen Real-time AI Translation Software
 
-## 版本 v0.3 - Stage 3：基于 DBNet++ 的屏幕文本检测系统
+## Version v0.4 - Stage 4: Text Region Refinement & OCR Preparation
 
-### 功能概述
+### Overview
 
-NexaTrans 是一款游戏屏幕实时 AI 翻译工具。
+NexaTrans is a game screen real-time AI translation tool.
 
-- **Stage 1**：屏幕翻译区域选择系统 ✅
-- **Stage 2**：屏幕区域截图系统 ✅
-- **Stage 3**：DBNet++ 文本检测 + Overlay 显示 ✅ ← 当前版本
+- **Stage 1**: Screen translation region selection system ✅
+- **Stage 2**: Screen region screenshot system ✅
+- **Stage 3**: DBNet++ text detection with overlay ✅
+- **Stage 4**: Text mask generation, refinement, merging & filtering ✅ ← Current
 
-### 当前功能
+### Current Features
 
-- ✅ 主界面：显示当前翻译区域坐标和尺寸
-- ✅ 框选区域：全屏透明覆盖层，鼠标拖动选择翻译区域
-- ✅ 红色边框 + 四角标记：截图工具风格的可视反馈
-- ✅ 深色遮罩：降低屏幕亮度，突出选中区域
-- ✅ 操作提示：屏幕中央显示引导文字
-- ✅ 常驻红框：可选在屏幕上显示所选区域红色边框
-- ✅ 坐标归一化：支持任意方向拖动
-- ✅ 配置持久化：区域配置自动保存至 `config/settings.json`
-- ✅ 自动加载：重启软件自动恢复上次选择的区域
-- ✅ 异常处理：全局异常捕获 + Qt 消息处理 + 日志记录
-- ✅ ESC 取消：按 ESC 键取消选择，不保存更改
-- ✅ 截图预览：验证红框与实际截图位置是否一致
-- ✅ DBNet++ 文本检测：自动检测选中区域内的文字
-- ✅ 水平矩形框：检测框保持水平对齐
-- ✅ 多框同时显示：所有检测到的文本区域同时显示
-- ✅ DPI 感知：正确处理高分屏缩放（125%/150%）
-- ✅ 多屏支持：检测框正确显示在对应屏幕上
-- ✅ 实时检测循环：可配置帧率目标（默认 15 FPS）
-- ✅ GPU 推理：CUDA 加速（如有），CPU 备用
+- ✅ **Main Interface**: Displays current translation region coordinates and dimensions
+- ✅ **Region Selection**: Full-screen transparent overlay for mouse-based region selection
+- ✅ **Red Border + Corner Markers**: Screenshot-tool style visual feedback
+- ✅ **Dark Overlay**: Reduces screen brightness to highlight selected region
+- ✅ **Operation Hints**: On-screen guidance text
+- ✅ **Persistent Test Box**: Optional always-on red border overlay for selected region
+- ✅ **Coordinate Normalization**: Supports arbitrary drag directions
+- ✅ **Config Persistence**: Auto-saves region config to `config/settings.json`
+- ✅ **Auto Load**: Restores last selected region on restart
+- ✅ **Exception Handling**: Global exception capture + Qt message handling + logging
+- ✅ **ESC Cancel**: Press ESC to cancel selection without saving
+- ✅ **DBNet++ Text Detection**: Auto-detect text regions in selected area
+- ✅ **Multi-box Overlay**: Simultaneous display of all detected text regions
+- ✅ **Screen Coordinate Conversion**: Local detection coords → absolute screen coords
+- ✅ **Real-time Detection Loop**: Configurable FPS target (default 15 FPS), frame-diff optimization
+- ✅ **GPU Inference**: CUDA acceleration when available, CPU fallback
+- ✅ **Text Mask Generation**: Polygon-to-pixel mask generation via OpenCV
+- ✅ **Mask Refinement**: Dilation + Gaussian blur for clean text masks
+- ✅ **Smart Background Color**: Mask color auto-matches text background
+- ✅ **Icon/UI Filtering**: Adjustable filters to exclude non-text UI elements
+- ✅ **Text Merging**: Merge adjacent text boxes into logical groups
+- ✅ **Crop Processing**: Generate OCR-ready text region crops
+- ✅ **Layout Analysis**: Horizontal/vertical text direction detection
+- ✅ **Filter Parameter UI**: Real-time adjustable confidence, aspect ratio, and area filters
+- ✅ **Screenshot Preview**: Visual verification of captured region
+- ✅ **Chinese UI**: Fully localized interface
 
-### 项目结构
+### Project Structure
 
 ```
 NexaTrans/
-├── main.py                        # 应用入口：日志、异常、初始化
+├── main.py                    # Application entry: logging, exceptions, initialization
 ├── ui/
-│   ├── main_window.py             # 主界面 + 检测控制 + 截图预览
-│   ├── region_overlay.py          # 常驻红框覆盖层
-│   └── selector_window.py         # 全屏透明区域选择器
+│   ├── main_window.py         # Main interface + detection controls + filter sliders
+│   ├── region_overlay.py      # Persistent region test box (red border)
+│   └── selector_window.py     # Transparent full-screen region selector
 ├── config/
-│   ├── settings.json              # 配置文件：区域坐标 + 覆盖层设置
-│   └── config_manager.py          # 配置管理器：JSON 读写
+│   ├── settings.json          # Config file: region coords + text processing params
+│   └── config_manager.py      # Config manager: JSON read/write
 ├── screen/
 │   ├── __init__.py
-│   └── screenshot.py              # 屏幕区域截图（mss/PIL，DPI 感知）
+│   └── screenshot.py          # Screen region capture (mss / PIL backend)
 ├── detection/
 │   ├── __init__.py
-│   ├── dbnet_detector.py          # DBNet++ 模型加载 + 文本检测
-│   └── detection_pipeline.py      # 截图→检测→转换→Overlay 管线
+│   ├── dbnet_detector.py      # DBNet++ model loading + text detection
+│   └── detection_pipeline.py  # Screenshot → detect → transform → mask → overlay loop
+├── text_processing/
+│   ├── __init__.py
+│   ├── mask_generator.py      # Polygon to pixel mask conversion
+│   ├── mask_refiner.py        # Dilation + Gaussian blur optimization
+│   ├── text_merger.py         # Adjacent text box merging
+│   ├── crop_processor.py      # OCR input crop generation
+│   └── layout_analyzer.py     # Reading direction analysis
 ├── overlay/
 │   ├── __init__.py
-│   └── text_overlay.py            # 置顶检测框覆盖层（区域定位）
+│   └── text_overlay.py        # Always-on-top detection box + mask overlay
 ├── models/
-│   └── dbnet/                     # 自定义模型文件（可选）
-├── requirements.txt               # 项目依赖
-└── README.md                      # 项目文档
+│   └── dbnet/                 # Custom model files (optional)
+├── logs/
+│   └── app.log                # Runtime log (auto-rotating)
+├── requirements.txt           # Project dependencies
+└── README.md                  # Project documentation
 ```
 
-### 安装与运行
+### Installation & Running
 
-#### 环境要求
+#### Requirements
 
 - Python 3.12+
 - Windows 10 / Windows 11
-- 支持 CUDA 的 GPU（可选，用于 GPU 推理）
+- CUDA-capable GPU (optional, for GPU inference)
 
-#### 安装依赖
-
-```bash
-pip install -r requirements.txt
-```
-
-#### 运行
+#### Install Dependencies
 
 ```bash
-python main.py
+py -m pip install -r requirements.txt
 ```
 
-### 使用说明
+> **Note**: PaddlePaddle with CUDA support requires additional setup. See [PaddlePaddle Installation Guide](https://www.paddlepaddle.org.cn/install/quick).
+> For CPU-only inference, replace `paddlepaddle` with `paddlepaddle-cpu` in requirements.txt.
 
-1. **框选区域**：点击「框选区域」，拖动鼠标选择游戏中的文字区域
-2. **验证红框**：勾选「显示红框」，确认红色边框位置正确
-3. **截图预览**：点击「截图预览」，在界面中查看实际截取的画面，确认截图=红框位置
-4. **开始检测**：点击「开始检测」，绿色矩形框会覆盖在检测到的文字上
-5. **停止检测**：点击「停止检测」结束检测循环
+#### Run
 
-### 配置文件
+```bash
+py main.py
+```
 
-`config/settings.json`：
+### Config File
+
+`config/settings.json`:
 
 ```json
 {
@@ -103,61 +115,103 @@ python main.py
     "overlay": {
         "opacity": 0.5,
         "border": true
+    },
+    "text_processing": {
+        "dilate_size": 5,
+        "blur_size": 3,
+        "merge_distance": 20,
+        "height_ratio": 0.6,
+        "crop_padding": 2,
+        "min_confidence": 0.5,
+        "min_text_aspect": 1.8,
+        "max_icon_aspect": 1.4,
+        "min_area_ratio": 0.005
     }
 }
 ```
 
-### 技术栈
+### Usage
 
-| 组件 | 技术 |
-|------|------|
-| 开发语言 | Python 3.12+ |
-| GUI 框架 | PySide6 |
-| 配置管理 | JSON |
-| 文本检测 | DBNet++（via PaddleOCR/PaddleX） |
-| 推理引擎 | ONNX Runtime |
-| 图像处理 | OpenCV |
-| 屏幕截图 | mss |
-| GPU 加速 | CUDA（可选） |
+1. **Select Region**: Click "框选区域" and drag to select a translation area
+2. **Verify Region**: Enable "显示红框" to see the red border, or click "截图预览"
+3. **Adjust Filters**: Use sliders to tune confidence, aspect ratio, and icon filtering
+4. **Start Detection**: Click "开始检测" to begin DBNet++ text detection
+5. **Enable Mask**: Toggle "显示Mask" to overlay colored masks on detected text
+6. **Stop Detection**: Click "停止检测" to end the detection loop
 
-### 路线图
+### Tech Stack
 
-| 阶段 | 功能 | 状态 |
-|------|------|------|
-| Stage 1 | 屏幕翻译区域选择 | ✅ 已完成 |
-| Stage 2 | 屏幕区域截图 | ✅ 已完成 |
-| Stage 3 | DBNet++ 文本检测 | ✅ 已完成 |
-| Stage 4 | OCR 文字识别 | 📋 计划中 |
-| Stage 5 | AI 翻译 | 📋 计划中 |
-| Stage 6 | 翻译结果 Overlay | 📋 计划中 |
+| Component | Technology |
+|-----------|-----------|
+| Language | Python 3.12+ |
+| GUI Framework | PySide6 |
+| Config Management | JSON |
+| Text Detection | DBNet++ (via PaddleOCR) |
+| OCR Engine | PaddleOCR |
+| Image Processing | OpenCV, NumPy |
+| Morphological Processing | cv2.dilate, cv2.fillPoly, GaussianBlur |
+| Mask Generation | OpenCV polygon rasterization |
+| Screen Capture | mss |
+| GPU Acceleration | CUDA (optional) |
 
-### 更新日志
+### Roadmap
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| Stage 1 | Screen region selection | ✅ Completed |
+| Stage 2 | Screen capture | ✅ Completed |
+| Stage 3 | DBNet++ text detection | ✅ Completed |
+| Stage 4 | Text mask & region refinement | ✅ Completed |
+| Stage 5 | OCR text recognition | 📋 Planned |
+| Stage 6 | AI translation | 📋 Planned |
+| Stage 7 | Translation overlay rendering | 📋 Planned |
+
+### Changelog
+
+#### v0.4 (2026-07-28)
+
+**Stage 4: Text Region Refinement & OCR Preparation**
+
+- ✅ Polygon-to-pixel mask generation (OpenCV fillPoly)
+- ✅ Mask dilation + Gaussian blur for clean edges
+- ✅ Smart background color sampling for mask fill
+- ✅ Icon/UI element filtering (adjustable aspect ratio + confidence)
+- ✅ Text box merging for adjacent regions
+- ✅ OCR crop output generation
+- ✅ Layout direction analysis (horizontal/vertical)
+- ✅ Real-time filter parameter adjustment UI
+- ✅ Frame-diff optimization (skip re-detection on static frames)
+- ✅ Mask overlay flicker-free rendering
+- ✅ Screenshot preview for region verification
+- ✅ Fully Chinese UI with no garbled text
 
 #### v0.3 (2026-07-27)
 
-**Stage 3：DBNet++ 文本检测系统**
+**Stage 3: DBNet++ Text Detection**
 
-- ✅ DBNet++ 文本检测（via PaddleOCR/PaddleX + ONNX Runtime）
-- ✅ 自动检测屏幕文字区域
-- ✅ 检测框水平矩形化处理
-- ✅ 检测框 Overlay 显示（置顶、半透明绿色）
-- ✅ DPI 缩放感知（支持 125%/150% 高分屏）
-- ✅ 多屏幕坐标正确映射
-- ✅ 实时检测管线（默认 15 FPS 目标）
-- ✅ GPU 推理支持（CUDA）
-- ✅ 多框同时显示
-- ✅ 模型单次加载，跨帧复用
-- ✅ 截图预览功能
-- ✅ 全中文 UI 界面
-- ✅ 异常处理：模型缺失、检测失败、截图失败
+- ✅ DBNet++ text detection via PaddleOCR
+- ✅ Automatic screen text region detection
+- ✅ Detection box overlay display
+- ✅ Screen coordinate transformation
+- ✅ Real-time detection pipeline (target 15 FPS)
+- ✅ GPU inference support (CUDA)
+- ✅ Multi-box simultaneous display
+- ✅ Model loaded once, reused across frames
+- ✅ Error handling: model missing, detection failure, screenshot failure
 
 #### v0.1 (2025-07-17)
 
-**Stage 1：区域选择系统**
+**Stage 1: Region Selection System**
 
-- ✅ 主界面区域信息显示
-- ✅ 全屏透明覆盖层选择
-- ✅ 实时矩形绘制 + 红色边框 + 四角标记
-- ✅ 深色遮罩 + 尺寸标签
-- ✅ 坐标归一化 + 配置持久化
-- ✅ 全局异常处理 + 日志 + ESC 取消
+- ✅ Main interface with region info display
+- ✅ Full-screen transparent overlay selection
+- ✅ Real-time rectangle drawing
+- ✅ Red border + corner markers
+- ✅ Dark semi-transparent overlay
+- ✅ Size tag display
+- ✅ Coordinate normalization
+- ✅ Config persistence
+- ✅ Global exception handling + logging
+- ✅ ESC cancel
+- ✅ Minimum region validation (10px)
+- ✅ Multi-monitor support (primary screen)
