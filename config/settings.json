@@ -34,5 +34,12 @@
         "target_language": "zh",
         "max_workers": 3,
         "cache": true
+    },
+    "ui": {
+        "show_mask": true,
+        "show_boxes": true,
+        "show_redbox": true,
+        "show_ocr": true,
+        "show_translation": true
     }
 }
