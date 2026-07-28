@@ -1,17 +1,15 @@
 ﻿# -*- coding: utf-8 -*-
 """
-NexaTrans - Main Window v1.0.2
-Clean UI: Start/Stop, Select Region, Settings (expandable).
-One-click translation. API key config in settings.
+NexaTrans - Main Window v1.0.4
+Chinese UI. API connectivity test. Red border toggle in settings.
 """
 
 import os
 import logging
-import numpy as np
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QGroupBox, QFormLayout, QCheckBox, QSlider,
-    QLineEdit, QFrame,
+    QLineEdit, QFrame, QMessageBox, QApplication,
 )
 from PySide6.QtCore import Qt, QTimer
 
@@ -70,7 +68,7 @@ class MainWindow(QWidget):
         self._setup_ui()
         self._load_config()
         self._load_region()
-        logger.info("MainWindow v1.0.2 ready")
+        logger.info("MainWindow v1.0.4 ready")
 
     def _setup_ui(self):
         self.setWindowTitle("NexaTrans v1.0")
@@ -89,8 +87,13 @@ class MainWindow(QWidget):
                 padding: 14px 0;
             }
             QPushButton#startBtn:hover { background: #0c8; }
-            QPushButton#startBtn.running { background: #c22; border-color: #e44; }
-            QPushButton#startBtn.running:hover { background: #e44; }
+            QPushButton#testBtn {
+                background: #333; color: #fa0; border-color: #fa0;
+                padding: 6px 12px; font-size: 12px;
+            }
+            QPushButton#testBtn:hover { background: #554400; }
+            QPushButton#testBtn.ok { color: #0c8; border-color: #0c8; }
+            QPushButton#testBtn.fail { color: #e44; border-color: #e44; }
             QGroupBox {
                 border: 1px solid #333; border-radius: 6px; margin-top: 8px;
                 padding-top: 14px; color: #aaa; font-weight: bold;
@@ -181,10 +184,18 @@ class MainWindow(QWidget):
         self.api_key_input.textChanged.connect(self._on_api_key_change)
         al.addWidget(QLabel("API密钥:"))
         al.addWidget(self.api_key_input)
+
+        # Test connection button
+        self.test_btn = QPushButton("检查连通性")
+        self.test_btn.setObjectName("testBtn")
+        self.test_btn.setCursor(Qt.PointingHandCursor)
+        self.test_btn.clicked.connect(self._on_test_connection)
+        al.addWidget(self.test_btn)
+
         ag.setLayout(al)
         sl.addWidget(ag)
 
-        # Toggles
+        # Overlay toggles
         tg = QGroupBox("覆盖层")
         tfl = QVBoxLayout()
         self.mask_check = QCheckBox("显示Mask遮罩")
@@ -194,6 +205,10 @@ class MainWindow(QWidget):
         self.boxes_check.setChecked(True)
         self.boxes_check.toggled.connect(self._on_boxes_toggle)
         tfl.addWidget(self.boxes_check)
+        self.redbox_check = QCheckBox("显示红框(翻译区域)")
+        self.redbox_check.setChecked(False)
+        self.redbox_check.toggled.connect(self._on_redbox_toggle)
+        tfl.addWidget(self.redbox_check)
         self.ocr_check = QCheckBox("启用OCR识别")
         self.ocr_check.setChecked(True)
         self.ocr_check.toggled.connect(self._on_ocr_toggle)
@@ -263,7 +278,8 @@ class MainWindow(QWidget):
     def _load_region(self):
         r = self.config_manager.load_region()
         if r.get("width", 0) > 0:
-            self.region_info.setText(f"Region: ({r['x']},{r['y']}) {r['width']}x{r['height']}")
+            self.region_info.setText(f"区域: ({r['x']},{r['y']}) {r['width']}x{r['height']}")
+            self._overlay.update_region(r)
 
     def _on_f(self, key, raw, label, div, fmt):
         val = raw / div; label.setText(fmt.format(val))
@@ -273,6 +289,50 @@ class MainWindow(QWidget):
 
     def _on_api_key_change(self, text):
         _write_env_key(text.strip())
+
+    def _on_test_connection(self):
+        key = self.api_key_input.text().strip()
+        if not key:
+            QMessageBox.warning(self, "检查连通性", "请先输入API密钥")
+            return
+
+        self.test_btn.setText("检查中...")
+        self.test_btn.setEnabled(False)
+        QApplication.instance().processEvents()
+
+        try:
+            from translation.deepseek_client import DeepSeekClient
+            # Force reload client with new key
+            import importlib
+            import translation.deepseek_client as dsc
+            importlib.reload(dsc)
+            client = dsc.DeepSeekClient(api_key=key)
+            result = client.translate("test")
+            if result.get("translation") and not result.get("error"):
+                self.test_btn.setText("✓ 连接成功")
+                self.test_btn.setStyleSheet(
+                    "QPushButton#testBtn { background: #333; color: #0c8; "
+                    "border-color: #0c8; padding: 6px 12px; font-size: 12px; }"
+                )
+            else:
+                self.test_btn.setText("✗ 连接失败")
+                self.test_btn.setStyleSheet(
+                    "QPushButton#testBtn { background: #333; color: #e44; "
+                    "border-color: #e44; padding: 6px 12px; font-size: 12px; }"
+                )
+                QMessageBox.critical(
+                    self, "连接失败",
+                    f"API返回错误:\n{result.get('error', 'Unknown')}"
+                )
+        except Exception as e:
+            self.test_btn.setText("✗ 连接失败")
+            self.test_btn.setStyleSheet(
+                "QPushButton#testBtn { background: #333; color: #e44; "
+                "border-color: #e44; padding: 6px 12px; font-size: 12px; }"
+            )
+            QMessageBox.critical(self, "连接失败", str(e))
+        finally:
+            self.test_btn.setEnabled(True)
 
     def _on_start(self):
         if self._pipeline and self._pipeline.is_running:
@@ -333,8 +393,11 @@ class MainWindow(QWidget):
     def _on_region_done(self, region):
         self._selector = None
         self.config_manager.save_region(region)
-        self.region_info.setText(f"Region: ({region['x']},{region['y']}) {region['width']}x{region['height']}")
+        self.region_info.setText(
+            f"区域: ({region['x']},{region['y']}) {region['width']}x{region['height']}")
         self._overlay.update_region(region)
+        if self.redbox_check.isChecked():
+            self._overlay.set_test_visible(True)
         self.show()
 
     def _on_region_cancel(self):
@@ -346,7 +409,7 @@ class MainWindow(QWidget):
         self._settings_area.setVisible(self._settings_visible)
         if self._settings_visible:
             self.settings_btn.setText("隐藏设置")
-            self.setFixedSize(380, 580)
+            self.setFixedSize(380, 640)
         else:
             self.settings_btn.setText("设  置")
             self.setFixedSize(380, 260)
@@ -358,6 +421,13 @@ class MainWindow(QWidget):
     def _on_boxes_toggle(self, checked):
         if self._pipeline and self._pipeline.overlay:
             self._pipeline.overlay.show_boxes = checked
+
+    def _on_redbox_toggle(self, checked):
+        if checked:
+            r = self.config_manager.load_region()
+            if r.get("width", 0) > 0:
+                self._overlay.update_region(r)
+        self._overlay.set_test_visible(checked)
 
     def _on_ocr_toggle(self, checked):
         if self._pipeline:
@@ -392,8 +462,8 @@ class MainWindow(QWidget):
         boxes = self._pipeline.overlay._boxes if hasattr(self._pipeline.overlay, "_boxes") else []
         static = self._pipeline.is_static if hasattr(self._pipeline, "is_static") else True
         self.status_label.setText(
-            f"- Running | {self._pipeline.fps:.0f} FPS | "
-            f"{len(boxes)} boxes | {'Static' if static else 'Dynamic'}")
+            f"● 运行中 | {self._pipeline.fps:.0f} FPS | "
+            f"{len(boxes)} 框 | {'静态' if static else '动态'}")
 
     def closeEvent(self, event):
         if self._pipeline:
@@ -401,4 +471,3 @@ class MainWindow(QWidget):
         self._fps_timer.stop()
         self._overlay.close()
         super().closeEvent(event)
-
