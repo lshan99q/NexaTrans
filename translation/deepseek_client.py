@@ -6,6 +6,7 @@ Loads API key from .env file automatically.
 """
 
 import os
+import sys
 import json
 import logging
 import urllib.request
@@ -24,7 +25,8 @@ def _load_env():
     env = {}
     candidates = []
     # Try project root
-    cur = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _frozen = getattr(sys, "frozen", False)
+    cur = os.path.dirname(sys.executable) if _frozen else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     candidates.append(os.path.join(cur, ".env"))
     # Try current directory
     candidates.append(".env")

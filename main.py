@@ -12,7 +12,7 @@ import logging.handlers
 from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import Qt, qInstallMessageHandler
 
-LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+LOG_DIR = os.path.join((os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))), "logs")
 LOG_FILE = os.path.join(LOG_DIR, "app.log")
 
 # Detect if running without console (e.g. .pyw or pythonw.exe)
@@ -93,7 +93,7 @@ sys.excepthook = global_exception_handler
 
 
 def ensure_directories():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = (os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__)))
     for d in ["config", "logs"]:
         os.makedirs(os.path.join(base_dir, d), exist_ok=True)
 

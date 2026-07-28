@@ -7,7 +7,7 @@ Mask mode: capture WITH mask (for diff), only clean-capture when changed.
 Stage 6: DeepSeek AI translation with parallel execution and caching.
 """
 
-import logging, time, ctypes, hashlib, threading, numpy as np, cv2
+import logging, time, sys, ctypes, hashlib, threading, numpy as np, cv2
 from PySide6.QtCore import QTimer, QObject
 from PySide6.QtWidgets import QApplication
 from screen.screenshot import capture_region
@@ -167,7 +167,7 @@ class DetectionPipeline(QObject):
             import os
 
             self._trans_cache = TranslationCache(
-                os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                os.path.join(os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                              "translation_cache.json")
             )
             tc = self._config.get_translation_config()

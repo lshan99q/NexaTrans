@@ -6,6 +6,7 @@ Configuration file read/write management module.
 
 import json
 import os
+import sys
 import logging
 
 logger = logging.getLogger("NexaTrans.Config")
@@ -41,7 +42,10 @@ DEFAULT_CONFIG = {
 class ConfigManager:
     def __init__(self, config_path: str = None):
         if config_path is None:
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if getattr(sys, "frozen", False):
+                base_dir = os.path.dirname(sys.executable)
+            else:
+                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             self.config_path = os.path.join(base_dir, "config", "settings.json")
         else:
             self.config_path = config_path

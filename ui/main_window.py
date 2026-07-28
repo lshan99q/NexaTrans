@@ -4,7 +4,7 @@ NexaTrans - Main Window v1.1
 System tray, settings persistence, FPS slider, translation stats.
 """
 
-import os, logging
+import os, sys, logging
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QGroupBox, QFormLayout, QCheckBox, QSlider,
@@ -18,7 +18,11 @@ from ui.selector_window import SelectorWindow
 from ui.region_overlay import RegionOverlay
 
 logger = logging.getLogger("NexaTrans.MainWindow")
-ENV_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+_FROZEN = getattr(sys, "frozen", False)
+ENV_PATH = os.path.join(
+    os.path.dirname(sys.executable) if _FROZEN else os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    ".env"
+)
 
 
 def _read_env_key():
