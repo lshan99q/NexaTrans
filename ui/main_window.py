@@ -197,17 +197,29 @@ class MainWindow(QWidget):
 
     def _on_preview_screenshot(self):
         from screen.screenshot import capture_region
+        import ctypes
         try:
             region = self.config_manager.load_region()
             if region.get("width", 0) <= 0:
-                self.preview_label.setText("(请先框选区域)"); return
-            img = capture_region(region)
+                self.preview_label.setText("(??????)"); return
+            # Hide overlays for clean original capture
+            u32 = ctypes.windll.user32
+            if hasattr(self, "_overlay") and self._overlay:
+                u32.ShowWindow(int(self._overlay.winId()), 0)
+            if self._pipeline and self._pipeline.overlay:
+                u32.ShowWindow(int(self._pipeline.overlay.winId()), 0)
+            try:
+                img = capture_region(region)
+            finally:
+                if hasattr(self, "_overlay") and self._overlay:
+                    u32.ShowWindow(int(self._overlay.winId()), 4)
+                if self._pipeline and self._pipeline.overlay:
+                    u32.ShowWindow(int(self._pipeline.overlay.winId()), 4)
             if img.size == 0:
-                self.preview_label.setText("(截图失败)"); return
+                self.preview_label.setText("(????)"); return
             self.preview_label.setPixmap(self._numpy_to_pixmap(img))
         except Exception as e:
-            self.preview_label.setText(f"(截图失败: {e})")
-
+            self.preview_label.setText(f"(????: {e})")
     def _update_fps_display(self):
         if self._pipeline and self._pipeline.is_running:
             self.fps_label.setText(f"帧率: {self._pipeline.fps:.1f}")

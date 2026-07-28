@@ -1,11 +1,11 @@
 """
-NexaTrans - Detection Pipeline v0.4.6
+NexaTrans - Detection Pipeline v0.4.7
 
-Unified clean capture + frame-diff for both modes.
-Exposes is_static property for UI display.
+Unified clean capture using Win32 ShowWindow (synchronous).
+Frame-diff on clean game frames. Exposes is_static for UI.
 """
 
-import logging, time, numpy as np, cv2
+import logging, time, ctypes, numpy as np, cv2
 from PySide6.QtCore import QTimer, QObject
 from PySide6.QtWidgets import QApplication
 from screen.screenshot import capture_region
@@ -13,6 +13,10 @@ from detection.dbnet_detector import DBNetDetector
 from overlay.text_overlay import TextOverlay
 
 logger = logging.getLogger("NexaTrans.DetectionPipeline")
+
+user32 = ctypes.windll.user32
+SW_HIDE = 0
+SW_SHOWNOACTIVATE = 4
 
 
 class DetectionPipeline(QObject):
@@ -42,8 +46,8 @@ class DetectionPipeline(QObject):
         self._sent_boxes = None
         self._sent_has_mask = None
         self._diff_thresh = 0.008
-        self._frame_static = True  # exposed for UI
-        logger.info(f"Pipeline v0.4.6 ready (target={target_fps}FPS)")
+        self._frame_static = True
+        logger.info(f"Pipeline v0.4.7 ready (target={target_fps}FPS)")
 
     # ── properties ──────────────────────────────────────────────
     @property
@@ -197,15 +201,15 @@ class DetectionPipeline(QObject):
         self._build_mask(self._prev_boxes, region, self._prev_clean)
         logger.info(f"Mask built: {len(self._prev_boxes)} boxes")
 
-    # ── clean capture ───────────────────────────────────────────
+    # ── clean capture (Win32 ShowWindow - synchronous) ──────────
     def _capture_clean(self, region):
-        """Hide overlay, flush, capture, show. Returns clean frame."""
-        self._overlay.setVisible(False)
-        QApplication.processEvents()
+        """Hide overlay via synchronous Win32 ShowWindow, capture, show."""
+        hwnd = int(self._overlay.winId())
+        user32.ShowWindow(hwnd, SW_HIDE)
         try:
             return capture_region(region)
         finally:
-            self._overlay.setVisible(True)
+            user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
 
     def _frame_changed(self, img):
         if self._prev_clean is None:
@@ -263,13 +267,13 @@ class DetectionPipeline(QObject):
                 self._sent_boxes = None
                 self._sent_has_mask = None
 
-            # Clean capture
+            # Clean capture via Win32 ShowWindow
             img = self._capture_clean(region)
             if img.size == 0:
                 self._busy = False
                 return
 
-            # Frame diff
+            # Frame diff on clean image
             changed = self._frame_changed(img)
             self._frame_static = not changed
 
