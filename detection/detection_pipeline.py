@@ -1,10 +1,11 @@
 """
-NexaTrans - Detection Pipeline v0.4.2
+NexaTrans - Detection Pipeline v0.4.3
 
-Key principle: NEVER hide the overlay during normal operation.
-- Normal mode: capture (with thin green lines, negligible impact) -> diff -> detect
-- Mask mode: ZERO capture, ZERO detection, just render cached mask
-- Mask toggle ON: one-time clean capture for initial detection
+Key principle: NEVER hide the overlay. Period.
+- Normal mode: capture (thin green lines irrelevant) -> diff -> detect -> render boxes
+- Mask mode: zero capture, just render cached mask. Periodic clean refresh (every 4s).
+- Mask toggle ON: generate mask from cached detection (no hide/show needed!)
+- Mask toggle OFF: clear mask, resume normal detection
 """
 
 import logging, time, ctypes, numpy as np, cv2
@@ -47,8 +48,10 @@ class DetectionPipeline(QObject):
         self._prev_colors = None
         self._sent_boxes = None
         self._sent_has_mask = None
-        self._diff_thresh = 0.008  # generous threshold to tolerate thin overlay lines
-        logger.info(f"Pipeline v0.4.2 ready (target={target_fps}FPS)")
+        self._diff_thresh = 0.008
+        self._tick_count = 0
+        self._mask_refresh_interval = 60  # clean refresh every ~4s in mask mode
+        logger.info(f"Pipeline v0.4.3 ready (target={target_fps}FPS)")
 
     # ── properties ──────────────────────────────────────────────
     @property
@@ -71,19 +74,18 @@ class DetectionPipeline(QObject):
 
         if v:
             self._init_mask()
-            # One-time clean capture for initial mask detection
-            self._do_clean_detect()
+            self._generate_mask_from_cache()
         else:
             self._prev_mask = None
             self._prev_colors = None
-            # Clear mask from overlay NOW
             boxes = self._prev_boxes if self._prev_boxes else []
             self._overlay.set_data(boxes, None, None)
             self._overlay.repaint()
+            QApplication.processEvents()
             self._sent_boxes = list(boxes) if boxes else None
             self._sent_has_mask = False
-            # Force fresh detection on next normal tick
             self._prev_image = None
+            self._tick_count = 0
 
     # ── init ────────────────────────────────────────────────────
     def _init_mask(self):
@@ -171,7 +173,7 @@ class DetectionPipeline(QObject):
         return out_b
 
     def _run_detect(self, img, region):
-        """Run DBNet detection on an image, update _prev_boxes/_mask/_colors."""
+        """Run DBNet detection + mask generation on an image."""
         r = self._detector.detect(img)
         pb = r.get("boxes", [])
         ss = r.get("scores", [])
@@ -182,34 +184,61 @@ class DetectionPipeline(QObject):
         self._prev_boxes = lb
 
         if self._show_mask and lb:
-            h_l, w_l = region["height"], region["width"]
-            if self._mask_gen and self._mask_ref:
-                mk = self._mask_gen.generate((h_l, w_l), lb)
-                self._prev_mask = self._mask_ref.refine(mk)
-            else:
-                self._prev_mask = np.zeros((h_l, w_l), np.uint8)
-                for b in lb:
-                    xs = [b[i] for i in range(0, len(b), 2)]
-                    ys = [b[i + 1] for i in range(0, len(b), 2)]
-                    cv2.fillPoly(self._prev_mask,
-                        [np.array([[min(xs), min(ys)], [max(xs), min(ys)],
-                                   [max(xs), max(ys)], [min(xs), max(ys)]], np.int32)], 255)
-            img_resized = cv2.resize(img, (w_l, h_l))
-            self._prev_colors = [self._bg_color(img_resized, b) for b in lb]
+            self._build_mask(lb, region, img)
         else:
             self._prev_mask = None
             self._prev_colors = None
 
-    def _do_clean_detect(self):
-        """One-time: hide overlay, capture clean, detect, show overlay with results."""
+    def _build_mask(self, boxes, region, img):
+        """Generate mask + colors from boxes (no detection)."""
+        h_l, w_l = region["height"], region["width"]
+        if self._mask_gen and self._mask_ref:
+            mk = self._mask_gen.generate((h_l, w_l), boxes)
+            self._prev_mask = self._mask_ref.refine(mk)
+        else:
+            self._prev_mask = np.zeros((h_l, w_l), np.uint8)
+            for b in boxes:
+                xs = [b[i] for i in range(0, len(b), 2)]
+                ys = [b[i + 1] for i in range(0, len(b), 2)]
+                cv2.fillPoly(self._prev_mask,
+                    [np.array([[min(xs), min(ys)], [max(xs), min(ys)],
+                               [max(xs), max(ys)], [min(xs), max(ys)]], np.int32)], 255)
+        img_resized = cv2.resize(img, (w_l, h_l))
+        self._prev_colors = [self._bg_color(img_resized, b) for b in boxes]
+
+    def _generate_mask_from_cache(self):
+        """Generate mask from cached detection results. NO hide/show needed!"""
+        if not self._prev_boxes or self._prev_image is None:
+            logger.warning("No cached detection to generate mask from")
+            return
+        region = self._config.load_region()
+        self._build_mask(self._prev_boxes, region, self._prev_image)
+        boxes = self._prev_boxes
+        self._overlay.set_data(boxes, self._prev_mask, self._prev_colors)
+        self._overlay.repaint()
+        QApplication.processEvents()
+        self._sent_boxes = list(boxes)
+        self._sent_has_mask = True
+        logger.info(f"Mask generated from cache: {len(boxes)} boxes")
+
+    def _do_clean_refresh(self, region):
+        """Periodic clean capture for mask mode. Brief hide/show via Qt."""
+        self._overlay.setVisible(False)
+        QApplication.processEvents()
         try:
-            region = self._config.load_region()
-            hwnd = int(self._overlay.winId())
-            user32.ShowWindow(hwnd, SW_HIDE)
             img = capture_region(region)
-            user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
-            if img.size == 0:
-                return
+        finally:
+            self._overlay.setVisible(True)
+        if img.size == 0:
+            return
+
+        changed = True
+        if self._prev_image is not None and self._prev_image.shape == img.shape:
+            d = np.mean(np.abs(img.astype(np.int16) - self._prev_image.astype(np.int16))) / 255.0
+            if d < self._diff_thresh:
+                changed = False
+
+        if changed:
             self._prev_image = img.copy()
             self._run_detect(img, region)
             boxes = self._prev_boxes if self._prev_boxes else []
@@ -220,9 +249,7 @@ class DetectionPipeline(QObject):
                 self._overlay.set_data(boxes, None, None)
             self._sent_boxes = list(boxes) if boxes else None
             self._sent_has_mask = has_mask
-            logger.info(f"Clean detect done: {len(boxes)} boxes, mask={has_mask}")
-        except Exception as e:
-            logger.error(f"Clean detect failed: {e}", exc_info=True)
+            logger.debug(f"Clean refresh: {len(boxes)} boxes")
 
     # ── start / stop ────────────────────────────────────────────
     def start(self):
@@ -239,6 +266,7 @@ class DetectionPipeline(QObject):
         self._prev_colors = None
         self._sent_boxes = None
         self._sent_has_mask = None
+        self._tick_count = 0
         self._frame_count = 0
         self._last_fps = time.time()
         self._dpr = self._dpr_get()
@@ -271,6 +299,8 @@ class DetectionPipeline(QObject):
                 self._sent_boxes = None
                 self._sent_has_mask = None
 
+            self._tick_count += 1
+
             if self._show_mask:
                 self._tick_mask_mode(region)
             else:
@@ -289,12 +319,11 @@ class DetectionPipeline(QObject):
 
     # ── normal mode (mask OFF) ──────────────────────────────────
     def _tick_normal_mode(self, region):
-        """Capture (includes overlay green lines - negligible), diff, detect."""
+        """Capture (includes overlay green lines - negligible), diff, detect, render boxes."""
         img = capture_region(region)
         if img.size == 0:
             return
 
-        # Frame diff
         changed = True
         if self._prev_image is not None and self._prev_image.shape == img.shape:
             d = np.mean(np.abs(img.astype(np.int16) - self._prev_image.astype(np.int16))) / 255.0
@@ -305,7 +334,6 @@ class DetectionPipeline(QObject):
             self._prev_image = img.copy()
             self._run_detect(img, region)
 
-        # Render boxes only
         boxes = self._prev_boxes if self._prev_boxes else []
         if boxes != self._sent_boxes or self._sent_has_mask:
             self._overlay.set_data(boxes, None, None)
@@ -314,7 +342,12 @@ class DetectionPipeline(QObject):
 
     # ── mask mode (mask ON) ─────────────────────────────────────
     def _tick_mask_mode(self, region):
-        """ZERO capture. ZERO detection. Just render cached mask + boxes."""
+        """Zero capture in normal ticks. Periodic clean refresh for updates."""
+        # Periodic clean refresh (every ~4 seconds)
+        if self._tick_count % self._mask_refresh_interval == 0 and self._tick_count > 0:
+            self._do_clean_refresh(region)
+
+        # Always render cached data
         boxes = self._prev_boxes if self._prev_boxes else []
         has_mask = self._prev_mask is not None
 
