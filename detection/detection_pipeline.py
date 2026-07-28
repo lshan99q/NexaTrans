@@ -23,7 +23,7 @@ OCR_CACHE_SIZE = 64
 
 class DetectionPipeline(QObject):
 
-    def __init__(self, config_manager, target_fps=15, limit_side_len=960):
+    def __init__(self, config_manager, target_fps=10, limit_side_len=960):
         super().__init__()
         self._config = config_manager
         self._detector = DBNetDetector(limit_side_len=limit_side_len)
@@ -48,6 +48,7 @@ class DetectionPipeline(QObject):
         self._trans_manager = None
         self._trans_cache = None
         self._trans_pending = False
+        self._trans_count = 0
         self._trans_lock = threading.Lock()
         self._interval = int(1000 / max(target_fps, 1))
         self._frame_count = 0
@@ -374,6 +375,7 @@ class DetectionPipeline(QObject):
                 translated = self._trans_manager.translate_regions(ocr_results)
                 self._trans_results = translated
                 self._overlay.set_trans_results(translated)
+                self._trans_count += 1
                 logger.info(f"Translation complete: {len(translated)} results")
             except Exception as e:
                 logger.error(f"Translation failed: {e}", exc_info=True)
@@ -426,6 +428,17 @@ class DetectionPipeline(QObject):
         return d >= self._diff_thresh
 
     # ---- start / stop ----
+
+    def set_fps(self, fps: int):
+        self._interval = int(1000 / max(fps, 1))
+        if self._running:
+            self._timer.setInterval(self._interval)
+        logger.info(f"FPS target set to {fps}")
+
+    @property
+    def trans_count(self) -> int:
+        return self._trans_count
+
     def start(self):
         if not self._detector.is_loaded:
             return False
@@ -446,6 +459,7 @@ class DetectionPipeline(QObject):
         self._ocr_results = []
         self._trans_results = []
         self._trans_pending = False
+        self._trans_count = 0
         self._frame_count = 0
         self._last_fps = time.time()
         self._dpr = self._dpr_get()
@@ -467,6 +481,7 @@ class DetectionPipeline(QObject):
         self._ocr_results = []
         self._trans_results = []
         self._trans_pending = False
+        self._trans_count = 0
         if self._trans_cache:
             self._trans_cache.save()
         if self._trans_manager:
