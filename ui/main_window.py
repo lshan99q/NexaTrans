@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QFrame, QMessageBox, QApplication, QSystemTrayIcon, QMenu,
 )
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QAction
 
 from config.config_manager import ConfigManager
 from ui.selector_window import SelectorWindow
