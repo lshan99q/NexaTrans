@@ -109,9 +109,16 @@ class MainWindow(QWidget):
 
     def _quit_app(self):
         self._quitting = True
-        if self._pipeline: self._pipeline.cleanup()
-        self._fps_timer.stop(); self._overlay.close(); self._tray.hide()
+        if self._pipeline:
+            try: self._pipeline.cleanup()
+            except: pass
+        self._fps_timer.stop()
+        self._overlay.close()
+        self._tray.setVisible(False)
+        self._tray.hide()
+        self.hide()
         QApplication.instance().quit()
+        import sys; sys.exit(0)
 
     def _setup_ui(self):
         self.setWindowTitle("NexaTrans v1.1"); self.setFixedSize(380, 260)

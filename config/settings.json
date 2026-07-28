@@ -40,6 +40,7 @@
         "show_boxes": false,
         "show_redbox": true,
         "show_ocr": true,
-        "show_translation": true
+        "show_translation": true,
+        "fps_target": 10
     }
 }
