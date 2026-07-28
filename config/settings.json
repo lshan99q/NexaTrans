@@ -1,9 +1,9 @@
 {
     "region": {
-        "x": 1328,
-        "y": 37,
-        "width": 274,
-        "height": 48
+        "x": 1526,
+        "y": 198,
+        "width": 493,
+        "height": 269
     },
     "overlay": {
         "opacity": 0.5,
@@ -15,9 +15,16 @@
         "merge_distance": 20,
         "height_ratio": 0.6,
         "crop_padding": 2,
-        "min_confidence": 0.5,
+        "min_confidence": 0.56,
         "min_text_aspect": 1.8,
         "max_icon_aspect": 1.4,
         "min_area_ratio": 0.005
+    },
+    "ocr": {
+        "enabled": false,
+        "engine": "PP-OCRv5",
+        "confidence": 0.7,
+        "cache": true,
+        "lang": "ch"
     }
 }

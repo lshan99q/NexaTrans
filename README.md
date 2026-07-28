@@ -1,6 +1,6 @@
-# NexaTrans - Game Screen Real-time AI Translation Software
+﻿# NexaTrans - Game Screen Real-time AI Translation Software
 
-## Version v0.4 - Stage 4: Text Region Refinement & OCR Preparation
+## Version v0.5 - Stage 5: OCR Text Recognition
 
 ### Overview
 
@@ -9,7 +9,8 @@ NexaTrans is a game screen real-time AI translation tool.
 - **Stage 1**: Screen translation region selection system ✅
 - **Stage 2**: Screen region screenshot system ✅
 - **Stage 3**: DBNet++ text detection with overlay ✅
-- **Stage 4**: Text mask generation, refinement, merging & filtering ✅ ← Current
+- **Stage 4**: Text mask generation, refinement, merging & filtering ✅
+- **Stage 5**: PP-OCRv5 text recognition & overlay display ✅ ← Current
 
 ### Current Features
 
@@ -39,6 +40,13 @@ NexaTrans is a game screen real-time AI translation tool.
 - ✅ **Filter Parameter UI**: Real-time adjustable confidence, aspect ratio, and area filters
 - ✅ **Screenshot Preview**: Visual verification of captured region
 - ✅ **Chinese UI**: Fully localized interface
+- ✅ **PP-OCRv5 Recognition**: OCR text recognition for detected regions
+- ✅ **Async OCR Worker**: Non-blocking recognition in background thread
+- ✅ **OCR Results Overlay**: Recognized text displayed on screen overlay
+- ✅ **OCR Cache**: MD5-based cache to avoid repeated recognition
+- ✅ **OCR Toggle**: Enable/disable OCR from UI
+- ✅ **Green Box Toggle**: Show/hide detection boxes independently
+- ✅ **OCR Results Panel**: Live OCR text display in main window
 
 ### Project Structure
 
@@ -46,11 +54,11 @@ NexaTrans is a game screen real-time AI translation tool.
 NexaTrans/
 ├── main.py                    # Application entry: logging, exceptions, initialization
 ├── ui/
-│   ├── main_window.py         # Main interface + detection controls + filter sliders
+│   ├── main_window.py         # Main interface + detection controls + filter sliders + OCR
 │   ├── region_overlay.py      # Persistent region test box (red border)
 │   └── selector_window.py     # Transparent full-screen region selector
 ├── config/
-│   ├── settings.json          # Config file: region coords + text processing params
+│   ├── settings.json          # Config file: region coords + text processing + OCR params
 │   └── config_manager.py      # Config manager: JSON read/write
 ├── screen/
 │   ├── __init__.py
@@ -58,7 +66,7 @@ NexaTrans/
 ├── detection/
 │   ├── __init__.py
 │   ├── dbnet_detector.py      # DBNet++ model loading + text detection
-│   └── detection_pipeline.py  # Screenshot → detect → transform → mask → overlay loop
+│   └── detection_pipeline.py  # Screenshot → detect → transform → mask → OCR → overlay loop
 ├── text_processing/
 │   ├── __init__.py
 │   ├── mask_generator.py      # Polygon to pixel mask conversion
@@ -66,9 +74,14 @@ NexaTrans/
 │   ├── text_merger.py         # Adjacent text box merging
 │   ├── crop_processor.py      # OCR input crop generation
 │   └── layout_analyzer.py     # Reading direction analysis
+├── ocr/
+│   ├── __init__.py
+│   ├── paddleocr_engine.py    # PP-OCRv5 Rec engine (PaddleX ONNX)
+│   ├── ocr_worker.py          # Async OCR worker thread (QThread)
+│   └── renderer.py            # PIL text renderer for overlay
 ├── overlay/
 │   ├── __init__.py
-│   └── text_overlay.py        # Always-on-top detection box + mask overlay
+│   └── text_overlay.py        # Always-on-top detection box + mask + OCR text overlay
 ├── models/
 │   └── dbnet/                 # Custom model files (optional)
 ├── logs/
@@ -126,6 +139,13 @@ py main.py
         "min_text_aspect": 1.8,
         "max_icon_aspect": 1.4,
         "min_area_ratio": 0.005
+    },
+    "ocr": {
+        "enabled": false,
+        "engine": "PP-OCRv5",
+        "confidence": 0.7,
+        "cache": true,
+        "lang": "ch"
     }
 }
 ```
@@ -137,7 +157,9 @@ py main.py
 3. **Adjust Filters**: Use sliders to tune confidence, aspect ratio, and icon filtering
 4. **Start Detection**: Click "开始检测" to begin DBNet++ text detection
 5. **Enable Mask**: Toggle "显示Mask" to overlay colored masks on detected text
-6. **Stop Detection**: Click "停止检测" to end the detection loop
+6. **Enable OCR**: Toggle "启用OCR (Stage 5)" to start PP-OCRv5 recognition
+7. **View Results**: OCR results appear in the overlay and in the main window panel
+8. **Stop Detection**: Click "停止检测" to end the detection loop
 
 ### Tech Stack
 
@@ -146,11 +168,12 @@ py main.py
 | Language | Python 3.12+ |
 | GUI Framework | PySide6 |
 | Config Management | JSON |
-| Text Detection | DBNet++ (via PaddleOCR) |
-| OCR Engine | PaddleOCR |
+| Text Detection | DBNet++ (via PaddleOCR/PaddleX) |
+| OCR Recognition | PP-OCRv5 (via PaddleX ONNX) |
 | Image Processing | OpenCV, NumPy |
 | Morphological Processing | cv2.dilate, cv2.fillPoly, GaussianBlur |
 | Mask Generation | OpenCV polygon rasterization |
+| Text Rendering | PIL (Pillow) |
 | Screen Capture | mss |
 | GPU Acceleration | CUDA (optional) |
 
@@ -162,11 +185,25 @@ py main.py
 | Stage 2 | Screen capture | ✅ Completed |
 | Stage 3 | DBNet++ text detection | ✅ Completed |
 | Stage 4 | Text mask & region refinement | ✅ Completed |
-| Stage 5 | OCR text recognition | 📋 Planned |
+| Stage 5 | OCR text recognition | ✅ Completed |
 | Stage 6 | AI translation | 📋 Planned |
 | Stage 7 | Translation overlay rendering | 📋 Planned |
 
 ### Changelog
+
+#### v0.5 (2026-07-28)
+
+**Stage 5: OCR Text Recognition**
+
+- ✅ PP-OCRv5 mobile rec model via PaddleX ONNX
+- ✅ Async OCR worker thread (QThread + signal/slot)
+- ✅ OCR text overlay on detection boxes
+- ✅ OCR results panel in main window
+- ✅ MD5-based OCR cache (64 entries)
+- ✅ CLAHE image preprocessing for better accuracy
+- ✅ OCR toggle from UI
+- ✅ Green box show/hide toggle
+- ✅ Non-blocking recognition (no UI freeze)
 
 #### v0.4 (2026-07-28)
 
