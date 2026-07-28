@@ -1,10 +1,10 @@
 """
-NexaTrans - Detection Pipeline
-Frame diff -> DBNet++ detection -> overlay.
+NexaTrans - Detection Pipeline v0.4.2
 
-Two modes:
-- Normal (mask OFF): hide overlay briefly -> capture -> diff -> detect -> show overlay
-- Mask ON: NO capture, NO detection, just render cached mask + boxes steadily
+Key principle: NEVER hide the overlay during normal operation.
+- Normal mode: capture (with thin green lines, negligible impact) -> diff -> detect
+- Mask mode: ZERO capture, ZERO detection, just render cached mask
+- Mask toggle ON: one-time clean capture for initial detection
 """
 
 import logging, time, ctypes, numpy as np, cv2
@@ -31,6 +31,7 @@ class DetectionPipeline(QObject):
         self._timer = QTimer()
         self._timer.timeout.connect(self._tick)
         self._running = False
+        self._busy = False
         self._show_mask = False
         self._mask_gen = None
         self._mask_ref = None
@@ -46,8 +47,8 @@ class DetectionPipeline(QObject):
         self._prev_colors = None
         self._sent_boxes = None
         self._sent_has_mask = None
-        self._diff_thresh = 0.005
-        logger.info(f"Pipeline ready (target={target_fps}FPS, limit={limit_side_len}px)")
+        self._diff_thresh = 0.008  # generous threshold to tolerate thin overlay lines
+        logger.info(f"Pipeline v0.4.2 ready (target={target_fps}FPS)")
 
     # ── properties ──────────────────────────────────────────────
     @property
@@ -65,29 +66,24 @@ class DetectionPipeline(QObject):
     def show_mask(self, v: bool):
         if v == self._show_mask:
             return
-        logger.info(f"Mask: {self._show_mask} -> {v}")
-        was_on = self._show_mask
+        logger.info(f"Mask toggle: {self._show_mask} -> {v}")
         self._show_mask = v
 
         if v:
-            # Turning mask ON
             self._init_mask()
-            # Force clean detection once, then cache
-            self._force_clean_detect()
+            # One-time clean capture for initial mask detection
+            self._do_clean_detect()
         else:
-            # Turning mask OFF
             self._prev_mask = None
             self._prev_colors = None
-            self._prev_image = None
-            self._sent_boxes = None
-            self._sent_has_mask = None
-            # Clear mask from overlay immediately
+            # Clear mask from overlay NOW
             boxes = self._prev_boxes if self._prev_boxes else []
             self._overlay.set_data(boxes, None, None)
+            self._overlay.repaint()
             self._sent_boxes = list(boxes) if boxes else None
             self._sent_has_mask = False
-            # Force repaint now (not queued)
-            self._overlay.repaint()
+            # Force fresh detection on next normal tick
+            self._prev_image = None
 
     # ── init ────────────────────────────────────────────────────
     def _init_mask(self):
@@ -174,18 +170,8 @@ class DetectionPipeline(QObject):
             )
         return out_b
 
-    # ── clean capture (hide overlay briefly) ────────────────────
-    def _clean_capture(self, region):
-        """Capture screenshot without overlay visible."""
-        hwnd = int(self._overlay.winId())
-        user32.ShowWindow(hwnd, SW_HIDE)
-        try:
-            return capture_region(region)
-        finally:
-            user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
-
-    def _detect_from_image(self, img, region):
-        """Run DBNet detection + optional mask generation on a clean image."""
+    def _run_detect(self, img, region):
+        """Run DBNet detection on an image, update _prev_boxes/_mask/_colors."""
         r = self._detector.detect(img)
         pb = r.get("boxes", [])
         ss = r.get("scores", [])
@@ -214,15 +200,18 @@ class DetectionPipeline(QObject):
             self._prev_mask = None
             self._prev_colors = None
 
-    def _force_clean_detect(self):
-        """Do a one-time clean capture + detection. Used when mask is toggled ON."""
+    def _do_clean_detect(self):
+        """One-time: hide overlay, capture clean, detect, show overlay with results."""
         try:
             region = self._config.load_region()
-            img = self._clean_capture(region)
+            hwnd = int(self._overlay.winId())
+            user32.ShowWindow(hwnd, SW_HIDE)
+            img = capture_region(region)
+            user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
             if img.size == 0:
                 return
             self._prev_image = img.copy()
-            self._detect_from_image(img, region)
+            self._run_detect(img, region)
             boxes = self._prev_boxes if self._prev_boxes else []
             has_mask = self._show_mask and self._prev_mask is not None
             if has_mask:
@@ -231,9 +220,9 @@ class DetectionPipeline(QObject):
                 self._overlay.set_data(boxes, None, None)
             self._sent_boxes = list(boxes) if boxes else None
             self._sent_has_mask = has_mask
-            logger.info(f"Clean detect: {len(boxes)} boxes, mask={has_mask}")
+            logger.info(f"Clean detect done: {len(boxes)} boxes, mask={has_mask}")
         except Exception as e:
-            logger.error(f"Force clean detect failed: {e}", exc_info=True)
+            logger.error(f"Clean detect failed: {e}", exc_info=True)
 
     # ── start / stop ────────────────────────────────────────────
     def start(self):
@@ -242,6 +231,7 @@ class DetectionPipeline(QObject):
         if self._running:
             return True
         self._running = True
+        self._busy = False
         self._last_region = None
         self._prev_image = None
         self._prev_boxes = None
@@ -254,8 +244,8 @@ class DetectionPipeline(QObject):
         self._dpr = self._dpr_get()
         region = self._config.load_region()
         self._overlay.update_region(region)
-        self._overlay.show_overlay()
         self._last_region = dict(region)
+        self._overlay.show_overlay()
         self._timer.start(self._interval)
         logger.info(f"Started (DPR={self._dpr})")
         return True
@@ -269,8 +259,9 @@ class DetectionPipeline(QObject):
 
     # ── main tick ───────────────────────────────────────────────
     def _tick(self):
-        if not self._running:
+        if self._busy or not self._running:
             return
+        self._busy = True
         try:
             region = self._config.load_region()
             if self._last_region != region:
@@ -292,13 +283,14 @@ class DetectionPipeline(QObject):
                 self._frame_count = 0
                 self._last_fps = now
         except Exception as e:
-            logger.error(f"Tick error: {e}", exc_info=True)
+            logger.error(f"Tick: {e}", exc_info=True)
+        finally:
+            self._busy = False
 
     # ── normal mode (mask OFF) ──────────────────────────────────
     def _tick_normal_mode(self, region):
-        """Normal mode: brief hide, clean capture, diff, detect, show boxes only."""
-        # Hide overlay briefly for clean capture
-        img = self._clean_capture(region)
+        """Capture (includes overlay green lines - negligible), diff, detect."""
+        img = capture_region(region)
         if img.size == 0:
             return
 
@@ -311,10 +303,9 @@ class DetectionPipeline(QObject):
 
         if changed:
             self._prev_image = img.copy()
-            self._detect_from_image(img, region)
-            logger.debug(f"Detected: {len(self._prev_boxes) if self._prev_boxes else 0} boxes")
+            self._run_detect(img, region)
 
-        # Show boxes only (no mask in normal mode)
+        # Render boxes only
         boxes = self._prev_boxes if self._prev_boxes else []
         if boxes != self._sent_boxes or self._sent_has_mask:
             self._overlay.set_data(boxes, None, None)
@@ -323,11 +314,10 @@ class DetectionPipeline(QObject):
 
     # ── mask mode (mask ON) ─────────────────────────────────────
     def _tick_mask_mode(self, region):
-        """Mask mode: NO capture, NO detection. Just render cached mask + boxes."""
+        """ZERO capture. ZERO detection. Just render cached mask + boxes."""
         boxes = self._prev_boxes if self._prev_boxes else []
         has_mask = self._prev_mask is not None
 
-        # Only update overlay if data actually changed
         if boxes != self._sent_boxes or has_mask != self._sent_has_mask:
             if has_mask:
                 self._overlay.set_data(boxes, self._prev_mask, self._prev_colors)
