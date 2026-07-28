@@ -1,10 +1,8 @@
 ﻿# -*- coding: utf-8 -*-
 """
-NexaTrans - Main Window (Stage 6)
-Stage 3: DBNet++ text detection.
-Stage 4: Mask overlay + filter sliders.
-Stage 5: OCR recognition with PP-OCRv5.
-Stage 6: DeepSeek AI translation.
+NexaTrans - Main Window v1.0
+Clean UI: Start/Stop, Select Region, Settings (expandable).
+One-click translation: detection + OCR + translation.
 """
 
 import logging
@@ -12,7 +10,7 @@ import numpy as np
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QGroupBox, QFormLayout, QCheckBox, QSlider,
-    QTextEdit,
+    QTextEdit, QFrame,
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap, QImage, QFont
@@ -33,279 +31,306 @@ class MainWindow(QWidget):
         self._overlay = RegionOverlay()
         self._pipeline = None
         self._fps_timer = QTimer()
-        self._fps_timer.timeout.connect(self._update_fps_display)
-        self._ocr_update_timer = QTimer()
-        self._ocr_update_timer.timeout.connect(self._update_ocr_display)
+        self._fps_timer.timeout.connect(self._update_status)
+        self._result_timer = QTimer()
+        self._result_timer.timeout.connect(self._update_results)
+        self._settings_visible = False
         self._setup_ui()
         self._load_config()
         self._load_region()
-        logger.info("Main window initialized (Stage 6)")
+        logger.info("MainWindow v1.0 ready")
 
-    def _numpy_to_pixmap(self, img: np.ndarray, max_w: int = 320) -> QPixmap:
-        import cv2
-        h, w = img.shape[:2]
-        if w > max_w:
-            scale = max_w / w
-            img = cv2.resize(img, (max_w, int(h * scale)))
-        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        h, w, c = rgb.shape
-        return QPixmap.fromImage(QImage(rgb.data, w, h, w * c, QImage.Format_RGB888))
+    # ═══════════════ UI Setup ═══════════════
+
+    def _setup_ui(self):
+        self.setWindowTitle("NexaTrans v1.0")
+        self.setFixedSize(380, 520)
+        self.setStyleSheet("""
+            QWidget {
+                background: #1a1a2e; color: #eee; font-size: 13px;
+            }
+            QPushButton {
+                background: #16213e; color: #0af; border: 1px solid #0af;
+                border-radius: 6px; padding: 10px 20px; font-size: 14px; font-weight: bold;
+            }
+            QPushButton:hover { background: #1a3a5e; }
+            QPushButton:pressed { background: #0d1b36; }
+            QPushButton#startBtn {
+                background: #0a6; color: #fff; border-color: #0c8; font-size: 16px;
+                padding: 14px 0;
+            }
+            QPushButton#startBtn:hover { background: #0c8; }
+            QPushButton#startBtn.running { background: #c22; border-color: #e44; }
+            QPushButton#startBtn.running:hover { background: #e44; }
+            QGroupBox {
+                border: 1px solid #333; border-radius: 6px; margin-top: 8px;
+                padding-top: 14px; color: #aaa; font-weight: bold;
+            }
+            QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; }
+            QTextEdit {
+                background: #0d1117; color: #58a6ff; border: 1px solid #333;
+                border-radius: 4px; font-family: Consolas; font-size: 12px;
+            }
+            QSlider::groove:horizontal {
+                background: #333; height: 4px; border-radius: 2px;
+            }
+            QSlider::handle:horizontal {
+                background: #0af; width: 12px; height: 12px;
+                margin: -4px 0; border-radius: 6px;
+            }
+            QCheckBox { spacing: 8px; }
+            QCheckBox::indicator { width: 16px; height: 16px; }
+        """)
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(8)
+
+        # Title
+        title = QLabel("NexaTrans")
+        title.setAlignment(Qt.AlignCenter)
+        f = title.font(); f.setPointSize(22); f.setBold(True); title.setFont(f)
+        title.setStyleSheet("color: #0af; background: transparent;")
+        layout.addWidget(title)
+
+        ver = QLabel("v1.0 · 屏幕实时AI翻译")
+        ver.setAlignment(Qt.AlignCenter)
+        ver.setStyleSheet("color: #666; font-size: 11px; background: transparent;")
+        layout.addWidget(ver)
+
+        # Separator
+        sep = QFrame(); sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("color: #333; background: transparent;")
+        layout.addWidget(sep)
+
+        # ── Main Buttons ──
+        self.start_btn = QPushButton("开始翻译")
+        self.start_btn.setObjectName("startBtn")
+        self.start_btn.setCursor(Qt.PointingHandCursor)
+        self.start_btn.clicked.connect(self._on_start)
+        layout.addWidget(self.start_btn)
+
+        btn_row = QHBoxLayout()
+        self.region_btn = QPushButton("框选区域")
+        self.region_btn.setCursor(Qt.PointingHandCursor)
+        self.region_btn.clicked.connect(self._on_select_region)
+        btn_row.addWidget(self.region_btn)
+
+        self.settings_btn = QPushButton("设  置")
+        self.settings_btn.setCursor(Qt.PointingHandCursor)
+        self.settings_btn.clicked.connect(self._on_toggle_settings)
+        btn_row.addWidget(self.settings_btn)
+        layout.addLayout(btn_row)
+
+        # ── Region Info ──
+        self.region_info = QLabel("区域: 未选择")
+        self.region_info.setAlignment(Qt.AlignCenter)
+        self.region_info.setStyleSheet("color: #888; font-size: 11px; background: transparent;")
+        layout.addWidget(self.region_info)
+
+        # ── Status ──
+        self.status_label = QLabel("● 就绪")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setStyleSheet("color: #888; font-size: 12px; background: transparent;")
+        layout.addWidget(self.status_label)
+
+        # ── Results ──
+        rg = QGroupBox("翻译结果")
+        rl = QVBoxLayout()
+        self.result_text = QTextEdit()
+        self.result_text.setReadOnly(True)
+        self.result_text.setMinimumHeight(80)
+        self.result_text.setMaximumHeight(120)
+        self.result_text.setPlaceholderText("等待翻译结果...")
+        rl.addWidget(self.result_text)
+        rg.setLayout(rl)
+        layout.addWidget(rg)
+
+        # ═══════════════ Settings Panel (hidden by default) ═══════════════
+        self._settings_area = QWidget()
+        self._settings_area.setVisible(False)
+        sl = QVBoxLayout()
+        sl.setContentsMargins(0, 4, 0, 0)
+        sl.setSpacing(6)
+
+        # Toggles
+        tg = QGroupBox("覆盖层显示")
+        tfl = QVBoxLayout()
+        self.mask_check = QCheckBox("显示 Mask 遮罩")
+        self.mask_check.toggled.connect(self._on_mask_toggle)
+        tfl.addWidget(self.mask_check)
+        self.boxes_check = QCheckBox("显示绿框")
+        self.boxes_check.setChecked(True)
+        self.boxes_check.toggled.connect(self._on_boxes_toggle)
+        tfl.addWidget(self.boxes_check)
+        self.ocr_check = QCheckBox("启用 OCR 识别")
+        self.ocr_check.setChecked(True)
+        self.ocr_check.toggled.connect(self._on_ocr_toggle)
+        tfl.addWidget(self.ocr_check)
+        self.trans_check = QCheckBox("启用 AI 翻译")
+        self.trans_check.setChecked(True)
+        self.trans_check.toggled.connect(self._on_trans_toggle)
+        tfl.addWidget(self.trans_check)
+        tg.setLayout(tfl)
+        sl.addWidget(tg)
+
+        # Filter sliders
+        fg = QGroupBox("过滤参数")
+        ffl = QFormLayout()
+
+        self._s_min_conf = self._make_s(10, 90, 50)
+        self._l_min_conf = QLabel("0.50")
+        ffl.addRow("最低置信度:", self._make_sr(self._s_min_conf, self._l_min_conf))
+
+        self._s_min_asp = self._make_s(12, 30, 18)
+        self._l_min_asp = QLabel("1.8")
+        ffl.addRow("文字长宽比:", self._make_sr(self._s_min_asp, self._l_min_asp))
+
+        self._s_max_icon = self._make_s(10, 18, 14)
+        self._l_max_icon = QLabel("1.4")
+        ffl.addRow("图标宽高比:", self._make_sr(self._s_max_icon, self._l_max_icon))
+
+        self._s_min_area = self._make_s(1, 20, 5)
+        self._l_min_area = QLabel("0.005")
+        ffl.addRow("最小面积比:", self._make_sr(self._s_min_area, self._l_min_area))
+
+        fg.setLayout(ffl)
+        sl.addWidget(fg)
+
+        self._settings_area.setLayout(sl)
+        layout.addWidget(self._settings_area)
+
+        # Connect slider signals
+        self._s_min_conf.valueChanged.connect(
+            lambda v: self._on_f("min_confidence", v, self._l_min_conf, 100.0, "{:.2f}"))
+        self._s_min_asp.valueChanged.connect(
+            lambda v: self._on_f("min_text_aspect", v, self._l_min_asp, 10.0, "{:.1f}"))
+        self._s_max_icon.valueChanged.connect(
+            lambda v: self._on_f("max_icon_aspect", v, self._l_max_icon, 10.0, "{:.1f}"))
+        self._s_min_area.valueChanged.connect(
+            lambda v: self._on_f("min_area_ratio", v, self._l_min_area, 1000.0, "{:.3f}"))
+
+        layout.addStretch()
+        self.setLayout(layout)
+
+    def _make_s(self, mn, mx, dv):
+        s = QSlider(Qt.Horizontal); s.setRange(mn, mx); s.setValue(dv); return s
+
+    def _make_sr(self, s, l):
+        w = QWidget(); w.setStyleSheet("background: transparent;")
+        r = QHBoxLayout(); r.setContentsMargins(0, 0, 0, 0)
+        r.addWidget(QLabel("低")); r.addWidget(s); r.addWidget(QLabel("高")); r.addWidget(l)
+        w.setLayout(r); return w
+
+    # ═══════════════ Config ═══════════════
 
     def _load_config(self):
         tp = self.config_manager.get_text_processing_config()
-        self._slider_min_conf.setValue(int(tp["min_confidence"] * 100))
-        self._slider_min_aspect.setValue(int(tp["min_text_aspect"] * 10))
-        self._slider_max_icon.setValue(int(tp["max_icon_aspect"] * 10))
-        self._slider_min_area.setValue(int(tp["min_area_ratio"] * 1000))
+        self._s_min_conf.setValue(int(tp["min_confidence"] * 100))
+        self._s_min_asp.setValue(int(tp["min_text_aspect"] * 10))
+        self._s_max_icon.setValue(int(tp["max_icon_aspect"] * 10))
+        self._s_min_area.setValue(int(tp["min_area_ratio"] * 1000))
 
-    def _setup_ui(self):
-        self.setWindowTitle("NexaTrans v0.6 - Stage 6 AI Translation")
-        self.setFixedSize(420, 940)
+    def _load_region(self):
+        r = self.config_manager.load_region()
+        if r.get("width", 0) > 0:
+            self.region_info.setText(
+                f"区域: ({r['x']},{r['y']}) {r['width']}x{r['height']}")
 
-        layout = QVBoxLayout()
-        layout.setContentsMargins(14, 10, 14, 10)
-        layout.setSpacing(5)
-
-        # Title
-        title = QLabel("NexaTrans v0.6")
-        title.setAlignment(Qt.AlignCenter)
-        f = title.font(); f.setPointSize(16); f.setBold(True); title.setFont(f)
-        layout.addWidget(title)
-        sub = QLabel("屏幕检测 + OCR + AI翻译")
-        sub.setAlignment(Qt.AlignCenter)
-        sub.setStyleSheet("color: #888;")
-        layout.addWidget(sub)
-
-        # Region info
-        gb = QGroupBox("翻译区域")
-        fl = QFormLayout()
-        self.label_x = QLabel("0"); self.label_y = QLabel("0")
-        self.label_width = QLabel("0"); self.label_height = QLabel("0")
-        fl.addRow("X:", self.label_x); fl.addRow("Y:", self.label_y)
-        fl.addRow("宽:", self.label_width); fl.addRow("高:", self.label_height)
-        gb.setLayout(fl); layout.addWidget(gb)
-
-        # Region controls
-        rc = QHBoxLayout()
-        self.test_checkbox = QCheckBox("显示红框")
-        self.test_checkbox.toggled.connect(self._on_test_toggle)
-        rc.addWidget(self.test_checkbox)
-        self.select_btn = QPushButton("框选区域")
-        self.select_btn.setFixedSize(90, 30)
-        self.select_btn.clicked.connect(self._on_select_region)
-        rc.addWidget(self.select_btn)
-        self.preview_btn = QPushButton("截图预览")
-        self.preview_btn.setFixedSize(90, 30)
-        self.preview_btn.clicked.connect(self._on_preview_screenshot)
-        rc.addWidget(self.preview_btn)
-        layout.addLayout(rc)
-
-        # Preview
-        pg = QGroupBox("截图预览")
-        pl = QVBoxLayout()
-        self.preview_label = QLabel()
-        self.preview_label.setAlignment(Qt.AlignCenter)
-        self.preview_label.setMinimumHeight(100)
-        self.preview_label.setStyleSheet("background:#1a1a1a; border:1px solid #444; border-radius:4px;")
-        self.preview_label.setText("(点击「截图预览」查看)")
-        pl.addWidget(self.preview_label); pg.setLayout(pl); layout.addWidget(pg)
-
-        # Detection Controls
-        dg = QGroupBox("检测控制")
-        dl = QVBoxLayout()
-
-        dc1 = QHBoxLayout()
-        self.detect_btn = QPushButton("开始检测")
-        self.detect_btn.setFixedSize(90, 30)
-        self.detect_btn.clicked.connect(self._on_toggle_detection)
-        dc1.addWidget(self.detect_btn)
-        self.model_status_label = QLabel("模型: 未加载")
-        dc1.addWidget(self.model_status_label)
-        dc1.addStretch()
-        dl.addLayout(dc1)
-
-        dc2 = QHBoxLayout()
-        self.mask_checkbox = QCheckBox("显示Mask")
-        self.mask_checkbox.setEnabled(False)
-        self.mask_checkbox.toggled.connect(self._on_mask_toggle)
-        dc2.addWidget(self.mask_checkbox)
-        self.boxes_checkbox = QCheckBox("显示绿框")
-        self.boxes_checkbox.setChecked(True)
-        self.boxes_checkbox.toggled.connect(self._on_boxes_toggle)
-        dc2.addWidget(self.boxes_checkbox)
-        dl.addLayout(dc2)
-
-        dc3 = QHBoxLayout()
-        self.ocr_checkbox = QCheckBox("启用OCR")
-        self.ocr_checkbox.setEnabled(False)
-        self.ocr_checkbox.toggled.connect(self._on_ocr_toggle)
-        dc3.addWidget(self.ocr_checkbox)
-        self.trans_checkbox = QCheckBox("启用翻译")
-        self.trans_checkbox.setEnabled(False)
-        self.trans_checkbox.toggled.connect(self._on_trans_toggle)
-        dc3.addWidget(self.trans_checkbox)
-        dl.addLayout(dc3)
-
-        dc4 = QHBoxLayout()
-        self.ocr_status_label = QLabel("OCR: 未启动")
-        dc4.addWidget(self.ocr_status_label)
-        self.trans_status_label = QLabel("翻译: 未启动")
-        dc4.addWidget(self.trans_status_label)
-        dc4.addStretch()
-        dl.addLayout(dc4)
-
-        dg.setLayout(dl); layout.addWidget(dg)
-
-        # Stats
-        sg = QGroupBox("运行状态")
-        sfl = QFormLayout()
-        self.fps_label = QLabel("帧率: --")
-        self.box_count_label = QLabel("检测框: 0")
-        self.static_label = QLabel("静态: --")
-        sfl.addRow(self.fps_label, self.box_count_label)
-        sfl.addRow(self.static_label)
-        sg.setLayout(sfl); layout.addWidget(sg)
-
-        # Results
-        og = QGroupBox("识别/翻译结果")
-        ol = QVBoxLayout()
-        self.ocr_text = QTextEdit()
-        self.ocr_text.setReadOnly(True)
-        self.ocr_text.setMinimumHeight(80)
-        self.ocr_text.setMaximumHeight(120)
-        self.ocr_text.setStyleSheet(
-            "background:#1a1a1a; color:#0f0; border:1px solid #444; border-radius:4px;"
-        )
-        mono = QFont("Consolas", 10)
-        self.ocr_text.setFont(mono)
-        self.ocr_text.setPlaceholderText("(等待OCR结果...)")
-        ol.addWidget(self.ocr_text)
-        og.setLayout(ol); layout.addWidget(og)
-
-        # Filter params
-        fg = QGroupBox("过滤参数")
-        ffl = QFormLayout()
-        self._slider_min_conf = self._make_slider(10, 90, 50)
-        self._label_min_conf = QLabel("0.50")
-        ffl.addRow("最低置信度:", self._make_slider_row(self._slider_min_conf, self._label_min_conf, "0.10", "0.90"))
-        self._slider_min_aspect = self._make_slider(12, 30, 18)
-        self._label_min_aspect = QLabel("1.8")
-        ffl.addRow("文字长宽比:", self._make_slider_row(self._slider_min_aspect, self._label_min_aspect, "1.2", "3.0"))
-        self._slider_max_icon = self._make_slider(10, 18, 14)
-        self._label_max_icon = QLabel("1.4")
-        ffl.addRow("图标宽高比:", self._make_slider_row(self._slider_max_icon, self._label_max_icon, "1.0", "1.8"))
-        self._slider_min_area = self._make_slider(1, 20, 5)
-        self._label_min_area = QLabel("0.005")
-        ffl.addRow("最小面积比:", self._make_slider_row(self._slider_min_area, self._label_min_area, "0.001", "0.020"))
-        fg.setLayout(ffl); layout.addWidget(fg)
-
-        # Slider connections
-        self._slider_min_conf.valueChanged.connect(
-            lambda v: self._on_filter_change("min_confidence", v, self._label_min_conf, 100.0, "{:.2f}")
-        )
-        self._slider_min_aspect.valueChanged.connect(
-            lambda v: self._on_filter_change("min_text_aspect", v, self._label_min_aspect, 10.0, "{:.1f}")
-        )
-        self._slider_max_icon.valueChanged.connect(
-            lambda v: self._on_filter_change("max_icon_aspect", v, self._label_max_icon, 10.0, "{:.1f}")
-        )
-        self._slider_min_area.valueChanged.connect(
-            lambda v: self._on_filter_change("min_area_ratio", v, self._label_min_area, 1000.0, "{:.3f}")
-        )
-
-        self.setLayout(layout)
-
-    def _make_slider(self, min_val, max_val, default):
-        s = QSlider(Qt.Horizontal); s.setRange(min_val, max_val); s.setValue(default); return s
-
-    def _make_slider_row(self, slider, label, left_text, right_text):
-        row = QHBoxLayout()
-        row.addWidget(QLabel(left_text)); row.addWidget(slider)
-        row.addWidget(QLabel(right_text)); row.addWidget(label)
-        return row
-
-    def _on_filter_change(self, key, raw_value, label, divisor, fmt):
-        val = raw_value / divisor
-        label.setText(fmt.format(val))
+    def _on_f(self, key, raw, label, div, fmt):
+        val = raw / div; label.setText(fmt.format(val))
         tp = self.config_manager.get_text_processing_config()
         tp[key] = val
         self.config_manager.save_text_processing(tp)
 
-    def _load_region(self):
-        self._update_region_display(self.config_manager.load_region())
+    # ═══════════════ Buttons ═══════════════
 
-    def _update_region_display(self, region):
-        self.label_x.setText(str(region.get("x", 0)))
-        self.label_y.setText(str(region.get("y", 0)))
-        self.label_width.setText(str(region.get("width", 0)))
-        self.label_height.setText(str(region.get("height", 0)))
-
-    def _on_preview_screenshot(self):
-        from screen.screenshot import capture_region
-        import ctypes
-        try:
-            region = self.config_manager.load_region()
-            if region.get("width", 0) <= 0:
-                self.preview_label.setText("(未选择区域)"); return
-            u32 = ctypes.windll.user32
-            if hasattr(self, "_overlay") and self._overlay:
-                u32.ShowWindow(int(self._overlay.winId()), 0)
-            if self._pipeline and self._pipeline.overlay:
-                u32.ShowWindow(int(self._pipeline.overlay.winId()), 0)
-            try:
-                img = capture_region(region)
-            finally:
-                if hasattr(self, "_overlay") and self._overlay:
-                    u32.ShowWindow(int(self._overlay.winId()), 4)
-                if self._pipeline and self._pipeline.overlay:
-                    u32.ShowWindow(int(self._pipeline.overlay.winId()), 4)
-            if img.size == 0:
-                self.preview_label.setText("(截图失败)"); return
-            self.preview_label.setPixmap(self._numpy_to_pixmap(img))
-        except Exception as e:
-            self.preview_label.setText(f"(错误: {e})")
-
-    def _update_fps_display(self):
+    def _on_start(self):
         if self._pipeline and self._pipeline.is_running:
-            self.fps_label.setText(f"帧率: {self._pipeline.fps:.1f}")
-            boxes = self._pipeline.overlay._boxes if hasattr(self._pipeline.overlay, "_boxes") else []
-            self.box_count_label.setText(f"检测框: {len(boxes)}")
-            static = self._pipeline.is_static if hasattr(self._pipeline, "is_static") else True
-            self.static_label.setText(f"静态: {'是' if static else '否'}")
+            self._stop_all()
+        else:
+            self._start_all()
 
-    def _update_ocr_display(self):
-        if not self._pipeline or not (self._pipeline.ocr_enabled or self._pipeline.trans_enabled):
+    def _start_all(self):
+        if self._pipeline is None:
+            self._init_pipeline()
+        if self._pipeline is None:
             return
-        # Show translation results if available, otherwise OCR
-        if self._pipeline.trans_enabled and self._pipeline.trans_results:
-            results = self._pipeline.trans_results
-            lines = []
-            for r in results:
-                src = r.get("text", "")
-                trans = r.get("translation", "")
-                err = r.get("translation_error")
-                if err:
-                    lines.append(f"[ERR] {src} | {err}")
-                elif trans:
-                    lines.append(f"[译] {src} -> {trans}")
-                else:
-                    lines.append(f"[..] {src}")
-            self.ocr_text.setPlainText("\n".join(lines))
-            self.trans_status_label.setText(f"翻译: {len(results)} 条")
-        elif self._pipeline.ocr_results:
-            results = self._pipeline.ocr_results
-            lines = []
-            for r in results:
-                text = r.get("text", "")
-                conf = r.get("confidence", 0)
-                lines.append(f"[{conf:.2f}] {text}")
-            self.ocr_text.setPlainText("\n".join(lines))
-            self.ocr_status_label.setText(f"OCR: {len(results)} 条")
+        if self._pipeline.start():
+            # Apply settings
+            self._pipeline.show_mask = self.mask_check.isChecked()
+            self._pipeline.ocr_enabled = self.ocr_check.isChecked()
+            self._pipeline.trans_enabled = self.trans_check.isChecked()
+            self._pipeline.overlay.show_boxes = self.boxes_check.isChecked()
 
-    def _on_test_toggle(self, checked):
-        if checked:
-            self._overlay.update_region(self.config_manager.load_region())
-        self._overlay.set_test_visible(checked)
+            self.start_btn.setText("停止翻译")
+            self.start_btn.setProperty("class", "running")
+            self.start_btn.setStyleSheet("""
+                QPushButton#startBtn {
+                    background: #c22; color: #fff; border-color: #e44;
+                    font-size: 16px; padding: 14px 0; border-radius: 6px;
+                }
+                QPushButton#startBtn:hover { background: #e44; }
+            """)
+            self.status_label.setText("● 运行中")
+            self.status_label.setStyleSheet("color: #0c8; font-size: 12px; background: transparent;")
+            self._fps_timer.start(500)
+            self._result_timer.start(500)
+            self.region_btn.setEnabled(False)
+        else:
+            self.status_label.setText("● 启动失败")
+            self.status_label.setStyleSheet("color: #e44; font-size: 12px; background: transparent;")
+
+    def _stop_all(self):
+        if self._pipeline:
+            self._pipeline.stop()
+        self.start_btn.setText("开始翻译")
+        self.start_btn.setProperty("class", "")
+        self.start_btn.setStyleSheet("""
+            QPushButton#startBtn {
+                background: #0a6; color: #fff; border-color: #0c8;
+                font-size: 16px; padding: 14px 0; border-radius: 6px;
+            }
+            QPushButton#startBtn:hover { background: #0c8; }
+        """)
+        self.status_label.setText("● 就绪")
+        self.status_label.setStyleSheet("color: #888; font-size: 12px; background: transparent;")
+        self._fps_timer.stop()
+        self._result_timer.stop()
+        self.result_text.clear()
+        self.result_text.setPlaceholderText("等待翻译结果...")
+        self.region_btn.setEnabled(True)
+
+    def _on_select_region(self):
+        if self._overlay.isVisible(): self._overlay.hide()
+        self.hide()
+        self._selector = SelectorWindow(self.config_manager.get_overlay_config())
+        self._selector.region_selected.connect(self._on_region_done)
+        self._selector.cancelled.connect(self._on_region_cancel)
+
+    def _on_region_done(self, region):
+        self._selector = None
+        self.config_manager.save_region(region)
+        self.region_info.setText(
+            f"区域: ({region['x']},{region['y']}) {region['width']}x{region['height']}")
+        self._overlay.update_region(region)
+        self.show()
+
+    def _on_region_cancel(self):
+        self._selector = None
+        self.show()
+
+    def _on_toggle_settings(self):
+        self._settings_visible = not self._settings_visible
+        self._settings_area.setVisible(self._settings_visible)
+        if self._settings_visible:
+            self.settings_btn.setText("隐藏设置")
+            self.setFixedSize(380, 780)
+        else:
+            self.settings_btn.setText("设  置")
+            self.setFixedSize(380, 520)
+
+    # ═══════════════ Toggles ═══════════════
 
     def _on_mask_toggle(self, checked):
         if self._pipeline:
@@ -318,90 +343,67 @@ class MainWindow(QWidget):
     def _on_ocr_toggle(self, checked):
         if self._pipeline:
             self._pipeline.ocr_enabled = checked
-            if checked:
-                self._ocr_update_timer.start(500)
-                self.ocr_status_label.setText("OCR: 运行中...")
-                self.trans_checkbox.setEnabled(True)
-            else:
-                self._ocr_update_timer.stop()
-                self.ocr_text.clear()
-                self.ocr_text.setPlaceholderText("(等待OCR结果...)")
-                self.ocr_status_label.setText("OCR: 已关闭")
-                self.trans_checkbox.setEnabled(False)
-                self.trans_checkbox.setChecked(False)
 
     def _on_trans_toggle(self, checked):
         if self._pipeline:
             self._pipeline.trans_enabled = checked
-            if checked:
-                self.trans_status_label.setText("翻译: 运行中...")
-            else:
-                self.trans_status_label.setText("翻译: 已关闭")
 
-    def _on_select_region(self):
-        if self._overlay.isVisible(): self._overlay.hide()
-        self.hide()
-        self._selector = SelectorWindow(self.config_manager.get_overlay_config())
-        self._selector.region_selected.connect(self._on_region_selected)
-        self._selector.cancelled.connect(self._on_selection_cancelled)
-
-    def _on_region_selected(self, region):
-        self._selector = None
-        self.config_manager.save_region(region)
-        self._update_region_display(region)
-        self._overlay.update_region(region)
-        if self.test_checkbox.isChecked(): self._overlay.set_test_visible(True)
-        self.show()
-
-    def _on_selection_cancelled(self):
-        self._selector = None
-        if self.test_checkbox.isChecked(): self._overlay.set_test_visible(True)
-        self.show()
-
-    def _on_toggle_detection(self):
-        if self._pipeline is None: self._init_pipeline()
-        if self._pipeline is None: return
-        if self._pipeline.is_running: self._stop_detection()
-        else: self._start_detection()
+    # ═══════════════ Pipeline ═══════════════
 
     def _init_pipeline(self):
         from detection.detection_pipeline import DetectionPipeline
-        self.model_status_label.setText("模型: 加载中..."); self.detect_btn.setEnabled(False)
+        self.status_label.setText("● 加载模型...")
+        self.status_label.setStyleSheet("color: #fa0; font-size: 12px; background: transparent;")
+        self.start_btn.setEnabled(False)
         try:
             self._pipeline = DetectionPipeline(self.config_manager, target_fps=15)
             if self._pipeline.detector.is_loaded:
-                self.model_status_label.setText("模型: DBNet++ (ONNX)")
-                self.mask_checkbox.setEnabled(True)
-                self.ocr_checkbox.setEnabled(True)
+                self.status_label.setText("● 就绪")
+                self.status_label.setStyleSheet("color: #888; font-size: 12px; background: transparent;")
             else:
-                self.model_status_label.setText("模型: 加载失败"); self._pipeline = None
+                self.status_label.setText("● 模型加载失败")
+                self.status_label.setStyleSheet("color: #e44; font-size: 12px; background: transparent;")
+                self._pipeline = None
         except Exception as e:
             logger.error(f"Pipeline init failed: {e}")
-            self.model_status_label.setText("模型: 错误"); self._pipeline = None
-        self.detect_btn.setEnabled(True)
+            self.status_label.setText("● 启动错误")
+            self._pipeline = None
+        self.start_btn.setEnabled(True)
 
-    def _start_detection(self):
-        if self._pipeline is None: return
-        if self._pipeline.start():
-            self.detect_btn.setText("停止检测")
-            self._fps_timer.start(500)
-        else:
-            logger.error("Failed to start detection")
+    def _update_status(self):
+        if not self._pipeline or not self._pipeline.is_running:
+            return
+        boxes = self._pipeline.overlay._boxes if hasattr(self._pipeline.overlay, "_boxes") else []
+        static = self._pipeline.is_static if hasattr(self._pipeline, "is_static") else True
+        self.status_label.setText(
+            f"● 运行中  |  {self._pipeline.fps:.0f} FPS  |  "
+            f"{len(boxes)} 框  |  {'静态' if static else '动态'}")
 
-    def _stop_detection(self):
-        if self._pipeline: self._pipeline.stop()
-        self.detect_btn.setText("开始检测")
-        self._fps_timer.stop()
-        self._ocr_update_timer.stop()
-        self.fps_label.setText("帧率: --"); self.box_count_label.setText("检测框: 0")
-        self.static_label.setText("静态: --")
-        self.ocr_status_label.setText("OCR: 未启动")
-        self.trans_status_label.setText("翻译: 未启动")
-        self.trans_checkbox.setEnabled(False)
-        self.trans_checkbox.setChecked(False)
+    def _update_results(self):
+        if not self._pipeline or not self._pipeline.is_running:
+            return
+        if self._pipeline.trans_enabled and self._pipeline.trans_results:
+            lines = []
+            for r in self._pipeline.trans_results[:8]:
+                src = r.get("text", "")
+                trans = r.get("translation", "")
+                if trans and trans != src:
+                    lines.append(f"{src}  →  {trans}")
+                elif src:
+                    lines.append(f"[识别] {src}")
+            if lines:
+                self.result_text.setPlainText("\n".join(lines))
+        elif self._pipeline.ocr_results:
+            lines = [f"[OCR] {r.get('text','')}" for r in self._pipeline.ocr_results[:8]]
+            if lines:
+                self.result_text.setPlainText("\n".join(lines))
+
+    # ═══════════════ Close ═══════════════
 
     def closeEvent(self, event):
-        if self._pipeline: self._pipeline.cleanup()
-        self._fps_timer.stop(); self._ocr_update_timer.stop()
+        if self._pipeline:
+            self._pipeline.cleanup()
+        self._fps_timer.stop()
+        self._result_timer.stop()
         self._overlay.close()
         super().closeEvent(event)

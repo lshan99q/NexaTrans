@@ -2,9 +2,11 @@
 """
 NexaTrans - Text Detection Overlay (Stage 6)
 Displays detection boxes, mask fills, OCR text, and translation results.
+Uses Win32 API for reliable click-through behavior.
 """
 
 import logging
+import ctypes
 from PySide6.QtWidgets import QWidget
 from PySide6.QtCore import Qt, QPointF, QRectF
 from PySide6.QtGui import (
@@ -13,9 +15,18 @@ from PySide6.QtGui import (
 
 logger = logging.getLogger("NexaTrans.TextOverlay")
 
+user32 = ctypes.windll.user32
+
+GWL_EXSTYLE = -20
+WS_EX_TRANSPARENT = 0x00000020
+WS_EX_LAYERED = 0x00080000
+WS_EX_TOOLWINDOW = 0x00000080
+WS_EX_NOACTIVATE = 0x08000000
+
 
 class TextOverlay(QWidget):
-    """Overlay widget: boxes, masks, OCR text, translated text."""
+    """Overlay widget: boxes, masks, OCR text, translated text.
+    Completely transparent to mouse input via Win32 WS_EX_TRANSPARENT."""
 
     def __init__(self):
         super().__init__()
@@ -35,6 +46,22 @@ class TextOverlay(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setGeometry(0, 0, 0, 0)
         self._region = {"x": 0, "y": 0, "width": 0, "height": 0}
+        self._hwnd = None
+
+    def _apply_click_through(self):
+        """Apply WS_EX_TRANSPARENT via Win32 API for reliable click-through."""
+        try:
+            hwnd = int(self.winId())
+            if hwnd and hwnd != self._hwnd:
+                self._hwnd = hwnd
+                ex = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+                user32.SetWindowLongW(
+                    hwnd, GWL_EXSTYLE,
+                    ex | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_NOACTIVATE
+                )
+                logger.debug(f"Click-through applied to overlay hwnd={hwnd}")
+        except Exception as e:
+            logger.warning(f"Failed to set click-through: {e}")
 
     def update_region(self, region: dict):
         x = int(region.get("x", 0))
@@ -45,6 +72,7 @@ class TextOverlay(QWidget):
             return
         self._region = {"x": x, "y": y, "width": w, "height": h}
         self.setGeometry(x, y, w, h)
+        self._apply_click_through()
 
     def set_data(self, boxes: list, mask, colors: list):
         self._boxes = boxes
@@ -53,6 +81,7 @@ class TextOverlay(QWidget):
         )
         if boxes and not self.isVisible():
             self.show()
+            self._apply_click_through()
         self.update()
 
     def set_ocr_results(self, results: list):
@@ -103,6 +132,7 @@ class TextOverlay(QWidget):
     def show_overlay(self):
         if self._region.get("width", 0) > 0:
             self.show()
+            self._apply_click_through()
 
     def hide_overlay(self):
         self.hide()
@@ -145,17 +175,13 @@ class TextOverlay(QWidget):
                 painter.setPen(QPen(QColor(0, 255, 100, 200), 2))
                 painter.drawPolygon(poly)
 
-        # Text overlay (translation or OCR)
         self._draw_text(painter)
-
         painter.end()
 
     def _draw_text(self, painter):
-        # Determine text source: translation > OCR
         use_trans = self._show_translation and self._trans_results
         results = self._trans_results if use_trans else self._ocr_results
         show = self._show_translation or self._show_ocr
-
         if not show or not results or not self._boxes:
             return
 
@@ -164,18 +190,12 @@ class TextOverlay(QWidget):
             result = results.get(rid)
             if not result:
                 continue
-
-            # Translation mode: show translated text
             if use_trans:
-                text = result.get("translation", "")
-                if not text:
-                    text = result.get("text", "")
+                text = result.get("translation", "") or result.get("text", "")
             else:
                 text = result.get("text", "")
-
             if not text:
                 continue
-
             if len(box) < 8:
                 continue
             xs = [box[j] for j in range(0, len(box), 2)]
@@ -193,20 +213,16 @@ class TextOverlay(QWidget):
             tx = x1 + max(0, (bw - text_width) // 2)
             ty = y1 + max(0, (bh - text_height) // 2) + fm.ascent()
 
-            # Translation uses a different color scheme
             if use_trans:
-                # Light blue outline
                 painter.setPen(QColor(0, 100, 200, 180))
                 for dx, dy in [(-1, -1), (1, -1), (-1, 1), (1, 1)]:
                     painter.drawText(int(tx + dx), int(ty + dy), text)
                 painter.setPen(QColor(200, 230, 255))
             else:
-                # Dark outline + white text (OCR)
                 painter.setPen(QColor(0, 0, 0, 160))
                 for dx, dy in [(-1, -1), (1, -1), (-1, 1), (1, 1)]:
                     painter.drawText(int(tx + dx), int(ty + dy), text)
                 painter.setPen(QColor(255, 255, 255))
-
             painter.drawText(int(tx), int(ty), text)
 
     def closeEvent(self, event):

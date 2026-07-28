@@ -411,8 +411,9 @@ class DetectionPipeline(QObject):
                 self._detect(img, region)
         finally:
             user32.ShowWindow(hwnd, 4)
-        self._overlay.hide()
-        self._overlay.show()
+            self._overlay.hide()
+            self._overlay.show()
+            self._overlay._apply_click_through()
         self._sent_boxes = None
         self._sent_has_mask = None
 
@@ -545,6 +546,7 @@ class DetectionPipeline(QObject):
                 self._detect(clean, region)
             self._overlay.hide()
             self._overlay.show()
+            self._overlay._apply_click_through()
             self._sent_boxes = None
             self._sent_has_mask = None
         boxes = self._prev_boxes if self._prev_boxes else []
