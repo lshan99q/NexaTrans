@@ -20,13 +20,20 @@ DEFAULT_CONFIG = {
         "max_icon_aspect": 1.4, "min_area_ratio": 0.005,
     },
     "ocr": {
-        "enabled": False, "engine": "PP-OCRv5",
+        "enabled": True, "engine": "PP-OCRv5",
         "confidence": 0.7, "cache": True, "lang": "ch",
     },
     "translation": {
-        "enabled": False, "provider": "deepseek",
+        "enabled": True, "provider": "deepseek",
         "model": "deepseek-chat", "target_language": "zh",
         "max_workers": 3, "cache": True,
+    },
+    "ui": {
+        "show_mask": False,
+        "show_boxes": True,
+        "show_redbox": False,
+        "show_ocr": True,
+        "show_translation": True,
     },
 }
 
@@ -101,4 +108,12 @@ class ConfigManager:
     def save_translation_config(self, trans: dict):
         config = self._read_config()
         config["translation"] = dict(trans)
+        self._write_config(config)
+
+    def get_ui_config(self) -> dict:
+        return dict(self._read_config().get("ui", DEFAULT_CONFIG["ui"]))
+
+    def save_ui_config(self, ui: dict):
+        config = self._read_config()
+        config["ui"] = dict(ui)
         self._write_config(config)

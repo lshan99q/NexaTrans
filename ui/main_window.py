@@ -1,7 +1,7 @@
 ﻿# -*- coding: utf-8 -*-
 """
-NexaTrans - Main Window v1.0.4
-Chinese UI. API connectivity test. Red border toggle in settings.
+NexaTrans - Main Window v1.0
+Chinese UI. Settings persistence. API test. Red border toggle.
 """
 
 import os
@@ -68,7 +68,9 @@ class MainWindow(QWidget):
         self._setup_ui()
         self._load_config()
         self._load_region()
-        logger.info("MainWindow v1.0.4 ready")
+        logger.info("MainWindow v1.0 ready")
+
+    # ═══════════════ UI Setup ═══════════════
 
     def _setup_ui(self):
         self.setWindowTitle("NexaTrans v1.0")
@@ -92,8 +94,6 @@ class MainWindow(QWidget):
                 padding: 6px 12px; font-size: 12px;
             }
             QPushButton#testBtn:hover { background: #554400; }
-            QPushButton#testBtn.ok { color: #0c8; border-color: #0c8; }
-            QPushButton#testBtn.fail { color: #e44; border-color: #e44; }
             QGroupBox {
                 border: 1px solid #333; border-radius: 6px; margin-top: 8px;
                 padding-top: 14px; color: #aaa; font-weight: bold;
@@ -126,7 +126,7 @@ class MainWindow(QWidget):
         title.setStyleSheet("color: #0af; background: transparent;")
         layout.addWidget(title)
 
-        ver = QLabel("v1.0 · 屏幕实时AI翻译")
+        ver = QLabel("v1.0 - Screen AI Translation")
         ver.setAlignment(Qt.AlignCenter)
         ver.setStyleSheet("color: #666; font-size: 11px; background: transparent;")
         layout.addWidget(ver)
@@ -136,7 +136,7 @@ class MainWindow(QWidget):
         layout.addWidget(sep)
 
         # Start button
-        self.start_btn = QPushButton("开始翻译")
+        self.start_btn = QPushButton("Start Translate")
         self.start_btn.setObjectName("startBtn")
         self.start_btn.setCursor(Qt.PointingHandCursor)
         self.start_btn.clicked.connect(self._on_start)
@@ -144,25 +144,25 @@ class MainWindow(QWidget):
 
         # Region + Settings row
         btn_row = QHBoxLayout()
-        self.region_btn = QPushButton("框选区域")
+        self.region_btn = QPushButton("Select Region")
         self.region_btn.setCursor(Qt.PointingHandCursor)
         self.region_btn.clicked.connect(self._on_select_region)
         btn_row.addWidget(self.region_btn)
 
-        self.settings_btn = QPushButton("设  置")
+        self.settings_btn = QPushButton("Settings")
         self.settings_btn.setCursor(Qt.PointingHandCursor)
         self.settings_btn.clicked.connect(self._on_toggle_settings)
         btn_row.addWidget(self.settings_btn)
         layout.addLayout(btn_row)
 
         # Region info
-        self.region_info = QLabel("区域: 未选择")
+        self.region_info = QLabel("Region: none")
         self.region_info.setAlignment(Qt.AlignCenter)
         self.region_info.setStyleSheet("color: #888; font-size: 11px; background: transparent;")
         layout.addWidget(self.region_info)
 
         # Status
-        self.status_label = QLabel("● 就绪")
+        self.status_label = QLabel("- Ready")
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setStyleSheet("color: #888; font-size: 12px; background: transparent;")
         layout.addWidget(self.status_label)
@@ -182,11 +182,10 @@ class MainWindow(QWidget):
         self.api_key_input.setText(_read_env_key())
         self.api_key_input.setEchoMode(QLineEdit.Password)
         self.api_key_input.textChanged.connect(self._on_api_key_change)
-        al.addWidget(QLabel("API密钥:"))
+        al.addWidget(QLabel("API Key:"))
         al.addWidget(self.api_key_input)
 
-        # Test connection button
-        self.test_btn = QPushButton("检查连通性")
+        self.test_btn = QPushButton("Test Connection")
         self.test_btn.setObjectName("testBtn")
         self.test_btn.setCursor(Qt.PointingHandCursor)
         self.test_btn.clicked.connect(self._on_test_connection)
@@ -196,49 +195,45 @@ class MainWindow(QWidget):
         sl.addWidget(ag)
 
         # Overlay toggles
-        tg = QGroupBox("覆盖层")
+        tg = QGroupBox("Overlay")
         tfl = QVBoxLayout()
-        self.mask_check = QCheckBox("显示Mask遮罩")
+        self.mask_check = QCheckBox("Show Mask")
         self.mask_check.toggled.connect(self._on_mask_toggle)
         tfl.addWidget(self.mask_check)
-        self.boxes_check = QCheckBox("显示绿框")
-        self.boxes_check.setChecked(True)
+        self.boxes_check = QCheckBox("Show Green Boxes")
         self.boxes_check.toggled.connect(self._on_boxes_toggle)
         tfl.addWidget(self.boxes_check)
-        self.redbox_check = QCheckBox("显示红框(翻译区域)")
-        self.redbox_check.setChecked(False)
+        self.redbox_check = QCheckBox("Show Red Border (Region)")
         self.redbox_check.toggled.connect(self._on_redbox_toggle)
         tfl.addWidget(self.redbox_check)
-        self.ocr_check = QCheckBox("启用OCR识别")
-        self.ocr_check.setChecked(True)
+        self.ocr_check = QCheckBox("Enable OCR")
         self.ocr_check.toggled.connect(self._on_ocr_toggle)
         tfl.addWidget(self.ocr_check)
-        self.trans_check = QCheckBox("启用AI翻译")
-        self.trans_check.setChecked(True)
+        self.trans_check = QCheckBox("Enable Translation")
         self.trans_check.toggled.connect(self._on_trans_toggle)
         tfl.addWidget(self.trans_check)
         tg.setLayout(tfl)
         sl.addWidget(tg)
 
         # Filters
-        fg = QGroupBox("过滤参数")
+        fg = QGroupBox("Filters")
         ffl = QFormLayout()
 
         self._s_min_conf = self._make_s(10, 90, 50)
         self._l_min_conf = QLabel("0.50")
-        ffl.addRow("最低置信度:", self._make_sr(self._s_min_conf, self._l_min_conf))
+        ffl.addRow("Min Confidence:", self._make_sr(self._s_min_conf, self._l_min_conf))
 
         self._s_min_asp = self._make_s(12, 30, 18)
         self._l_min_asp = QLabel("1.8")
-        ffl.addRow("文字长宽比:", self._make_sr(self._s_min_asp, self._l_min_asp))
+        ffl.addRow("Min Text Aspect:", self._make_sr(self._s_min_asp, self._l_min_asp))
 
         self._s_max_icon = self._make_s(10, 18, 14)
         self._l_max_icon = QLabel("1.4")
-        ffl.addRow("图标宽高比:", self._make_sr(self._s_max_icon, self._l_max_icon))
+        ffl.addRow("Max Icon Aspect:", self._make_sr(self._s_max_icon, self._l_max_icon))
 
         self._s_min_area = self._make_s(1, 20, 5)
         self._l_min_area = QLabel("0.005")
-        ffl.addRow("最小面积比:", self._make_sr(self._s_min_area, self._l_min_area))
+        ffl.addRow("Min Area Ratio:", self._make_sr(self._s_min_area, self._l_min_area))
 
         fg.setLayout(ffl)
         sl.addWidget(fg)
@@ -265,8 +260,10 @@ class MainWindow(QWidget):
     def _make_sr(self, s, l):
         w = QWidget(); w.setStyleSheet("background: transparent;")
         r = QHBoxLayout(); r.setContentsMargins(0, 0, 0, 0)
-        r.addWidget(QLabel("低")); r.addWidget(s); r.addWidget(QLabel("高")); r.addWidget(l)
+        r.addWidget(QLabel("Low")); r.addWidget(s); r.addWidget(QLabel("High")); r.addWidget(l)
         w.setLayout(r); return w
+
+    # ═══════════════ Config Load/Save ═══════════════
 
     def _load_config(self):
         tp = self.config_manager.get_text_processing_config()
@@ -274,12 +271,34 @@ class MainWindow(QWidget):
         self._s_min_asp.setValue(int(tp["min_text_aspect"] * 10))
         self._s_max_icon.setValue(int(tp["max_icon_aspect"] * 10))
         self._s_min_area.setValue(int(tp["min_area_ratio"] * 1000))
+        # Load checkbox states
+        ui = self.config_manager.get_ui_config()
+        self.mask_check.setChecked(ui.get("show_mask", False))
+        self.boxes_check.setChecked(ui.get("show_boxes", True))
+        self.redbox_check.setChecked(ui.get("show_redbox", False))
+        self.ocr_check.setChecked(ui.get("show_ocr", True))
+        self.trans_check.setChecked(ui.get("show_translation", True))
+        # Apply redbox on load if it was on
+        if ui.get("show_redbox", False):
+            r = self.config_manager.load_region()
+            if r.get("width", 0) > 0:
+                self._overlay.update_region(r)
+                self._overlay.set_test_visible(True)
 
     def _load_region(self):
         r = self.config_manager.load_region()
         if r.get("width", 0) > 0:
-            self.region_info.setText(f"区域: ({r['x']},{r['y']}) {r['width']}x{r['height']}")
+            self.region_info.setText(f"Region: ({r['x']},{r['y']}) {r['width']}x{r['height']}")
             self._overlay.update_region(r)
+
+    def _save_ui(self):
+        self.config_manager.save_ui_config({
+            "show_mask": self.mask_check.isChecked(),
+            "show_boxes": self.boxes_check.isChecked(),
+            "show_redbox": self.redbox_check.isChecked(),
+            "show_ocr": self.ocr_check.isChecked(),
+            "show_translation": self.trans_check.isChecked(),
+        })
 
     def _on_f(self, key, raw, label, div, fmt):
         val = raw / div; label.setText(fmt.format(val))
@@ -287,50 +306,43 @@ class MainWindow(QWidget):
         tp[key] = val
         self.config_manager.save_text_processing(tp)
 
+    # ═══════════════ API & Buttons ═══════════════
+
     def _on_api_key_change(self, text):
         _write_env_key(text.strip())
 
     def _on_test_connection(self):
         key = self.api_key_input.text().strip()
         if not key:
-            QMessageBox.warning(self, "检查连通性", "请先输入API密钥")
+            QMessageBox.warning(self, "Test Connection", "Please enter an API key first")
             return
-
-        self.test_btn.setText("检查中...")
+        self.test_btn.setText("Testing...")
         self.test_btn.setEnabled(False)
         QApplication.instance().processEvents()
-
         try:
             from translation.deepseek_client import DeepSeekClient
-            # Force reload client with new key
-            import importlib
-            import translation.deepseek_client as dsc
+            import importlib, translation.deepseek_client as dsc
             importlib.reload(dsc)
             client = dsc.DeepSeekClient(api_key=key)
             result = client.translate("test")
             if result.get("translation") and not result.get("error"):
-                self.test_btn.setText("✓ 连接成功")
+                self.test_btn.setText("Connected")
                 self.test_btn.setStyleSheet(
                     "QPushButton#testBtn { background: #333; color: #0c8; "
-                    "border-color: #0c8; padding: 6px 12px; font-size: 12px; }"
-                )
+                    "border-color: #0c8; padding: 6px 12px; font-size: 12px; }")
             else:
-                self.test_btn.setText("✗ 连接失败")
+                self.test_btn.setText("Failed")
                 self.test_btn.setStyleSheet(
                     "QPushButton#testBtn { background: #333; color: #e44; "
-                    "border-color: #e44; padding: 6px 12px; font-size: 12px; }"
-                )
-                QMessageBox.critical(
-                    self, "连接失败",
-                    f"API返回错误:\n{result.get('error', 'Unknown')}"
-                )
+                    "border-color: #e44; padding: 6px 12px; font-size: 12px; }")
+                QMessageBox.critical(self, "Connection Failed",
+                    f"API Error: {result.get('error', 'Unknown')}")
         except Exception as e:
-            self.test_btn.setText("✗ 连接失败")
+            self.test_btn.setText("Failed")
             self.test_btn.setStyleSheet(
                 "QPushButton#testBtn { background: #333; color: #e44; "
-                "border-color: #e44; padding: 6px 12px; font-size: 12px; }"
-            )
-            QMessageBox.critical(self, "连接失败", str(e))
+                "border-color: #e44; padding: 6px 12px; font-size: 12px; }")
+            QMessageBox.critical(self, "Connection Failed", str(e))
         finally:
             self.test_btn.setEnabled(True)
 
@@ -351,7 +363,7 @@ class MainWindow(QWidget):
             self._pipeline.trans_enabled = self.trans_check.isChecked()
             self._pipeline.overlay.show_boxes = self.boxes_check.isChecked()
 
-            self.start_btn.setText("停止翻译")
+            self.start_btn.setText("Stop Translate")
             self.start_btn.setStyleSheet("""
                 QPushButton#startBtn {
                     background: #c22; color: #fff; border-color: #e44;
@@ -359,18 +371,18 @@ class MainWindow(QWidget):
                 }
                 QPushButton#startBtn:hover { background: #e44; }
             """)
-            self.status_label.setText("● 运行中")
+            self.status_label.setText("- Running")
             self.status_label.setStyleSheet("color: #0c8; font-size: 12px; background: transparent;")
             self._fps_timer.start(500)
             self.region_btn.setEnabled(False)
         else:
-            self.status_label.setText("● 启动失败")
+            self.status_label.setText("- Start Failed")
             self.status_label.setStyleSheet("color: #e44; font-size: 12px; background: transparent;")
 
     def _stop_all(self):
         if self._pipeline:
             self._pipeline.stop()
-        self.start_btn.setText("开始翻译")
+        self.start_btn.setText("Start Translate")
         self.start_btn.setStyleSheet("""
             QPushButton#startBtn {
                 background: #0a6; color: #fff; border-color: #0c8;
@@ -378,7 +390,7 @@ class MainWindow(QWidget):
             }
             QPushButton#startBtn:hover { background: #0c8; }
         """)
-        self.status_label.setText("● 就绪")
+        self.status_label.setText("- Ready")
         self.status_label.setStyleSheet("color: #888; font-size: 12px; background: transparent;")
         self._fps_timer.stop()
         self.region_btn.setEnabled(True)
@@ -393,8 +405,7 @@ class MainWindow(QWidget):
     def _on_region_done(self, region):
         self._selector = None
         self.config_manager.save_region(region)
-        self.region_info.setText(
-            f"区域: ({region['x']},{region['y']}) {region['width']}x{region['height']}")
+        self.region_info.setText(f"Region: ({region['x']},{region['y']}) {region['width']}x{region['height']}")
         self._overlay.update_region(region)
         if self.redbox_check.isChecked():
             self._overlay.set_test_visible(True)
@@ -408,21 +419,26 @@ class MainWindow(QWidget):
         self._settings_visible = not self._settings_visible
         self._settings_area.setVisible(self._settings_visible)
         if self._settings_visible:
-            self.settings_btn.setText("隐藏设置")
+            self.settings_btn.setText("Hide Settings")
             self.setFixedSize(380, 640)
         else:
-            self.settings_btn.setText("设  置")
+            self.settings_btn.setText("Settings")
             self.setFixedSize(380, 260)
 
+    # ═══════════════ Toggles (with save) ═══════════════
+
     def _on_mask_toggle(self, checked):
+        self._save_ui()
         if self._pipeline:
             self._pipeline.show_mask = checked
 
     def _on_boxes_toggle(self, checked):
+        self._save_ui()
         if self._pipeline and self._pipeline.overlay:
             self._pipeline.overlay.show_boxes = checked
 
     def _on_redbox_toggle(self, checked):
+        self._save_ui()
         if checked:
             r = self.config_manager.load_region()
             if r.get("width", 0) > 0:
@@ -430,29 +446,33 @@ class MainWindow(QWidget):
         self._overlay.set_test_visible(checked)
 
     def _on_ocr_toggle(self, checked):
+        self._save_ui()
         if self._pipeline:
             self._pipeline.ocr_enabled = checked
 
     def _on_trans_toggle(self, checked):
+        self._save_ui()
         if self._pipeline:
             self._pipeline.trans_enabled = checked
 
+    # ═══════════════ Pipeline ═══════════════
+
     def _init_pipeline(self):
         from detection.detection_pipeline import DetectionPipeline
-        self.status_label.setText("● 加载模型...")
+        self.status_label.setText("- Loading model...")
         self.status_label.setStyleSheet("color: #fa0; font-size: 12px; background: transparent;")
         self.start_btn.setEnabled(False)
         try:
             self._pipeline = DetectionPipeline(self.config_manager, target_fps=15)
             if self._pipeline.detector.is_loaded:
-                self.status_label.setText("● 就绪")
+                self.status_label.setText("- Ready")
                 self.status_label.setStyleSheet("color: #888; font-size: 12px; background: transparent;")
             else:
-                self.status_label.setText("● 模型加载失败")
+                self.status_label.setText("- Model load failed")
                 self._pipeline = None
         except Exception as e:
             logger.error(f"Pipeline init failed: {e}")
-            self.status_label.setText("● 错误")
+            self.status_label.setText("- Error")
             self._pipeline = None
         self.start_btn.setEnabled(True)
 
@@ -462,8 +482,8 @@ class MainWindow(QWidget):
         boxes = self._pipeline.overlay._boxes if hasattr(self._pipeline.overlay, "_boxes") else []
         static = self._pipeline.is_static if hasattr(self._pipeline, "is_static") else True
         self.status_label.setText(
-            f"● 运行中 | {self._pipeline.fps:.0f} FPS | "
-            f"{len(boxes)} 框 | {'静态' if static else '动态'}")
+            f"- Running | {self._pipeline.fps:.0f} FPS | "
+            f"{len(boxes)} boxes | {'Static' if static else 'Dynamic'}")
 
     def closeEvent(self, event):
         if self._pipeline:
