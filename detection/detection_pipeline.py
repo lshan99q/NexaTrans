@@ -1,12 +1,13 @@
-﻿"""
-NexaTrans - Detection Pipeline v0.5.1
+﻿# -*- coding: utf-8 -*-
+"""
+NexaTrans - Detection Pipeline v0.6.0
 
-Normal mode: capture directly, diff, detect, render.
+Normal mode: capture, diff, detect, OCR, translate, render.
 Mask mode: capture WITH mask (for diff), only clean-capture when changed.
-Stage 5: Inline OCR with caching (no thread complexity).
+Stage 6: DeepSeek AI translation with parallel execution and caching.
 """
 
-import logging, time, ctypes, hashlib, numpy as np, cv2
+import logging, time, ctypes, hashlib, threading, numpy as np, cv2
 from PySide6.QtCore import QTimer, QObject
 from PySide6.QtWidgets import QApplication
 from screen.screenshot import capture_region
@@ -33,14 +34,21 @@ class DetectionPipeline(QObject):
         self._busy = False
         self._show_mask = False
         self._ocr_enabled = False
+        self._trans_enabled = False
         self._ocr_engine = None
         self._ocr_results = []
+        self._trans_results = []
         self._ocr_cache = {}
         self._ocr_cache_order = []
         self._mask_gen = None
         self._mask_ref = None
         self._crop_proc = None
         self._layout_analyzer = None
+        self._trans_client = None
+        self._trans_manager = None
+        self._trans_cache = None
+        self._trans_pending = False
+        self._trans_lock = threading.Lock()
         self._interval = int(1000 / max(target_fps, 1))
         self._frame_count = 0
         self._last_fps = time.time()
@@ -55,9 +63,7 @@ class DetectionPipeline(QObject):
         self._sent_has_mask = None
         self._diff_thresh = 0.008
         self._frame_static = True
-        self._last_ocr_boxes = None
-        self._last_ocr_frame = None
-        logger.info(f"Pipeline v0.5.1 ready (target={target_fps}FPS)")
+        logger.info(f"Pipeline v0.6.0 ready (target={target_fps}FPS)")
 
     # ---- properties ----
     @property
@@ -75,7 +81,11 @@ class DetectionPipeline(QObject):
     @property
     def ocr_enabled(self): return self._ocr_enabled
     @property
+    def trans_enabled(self): return self._trans_enabled
+    @property
     def ocr_results(self): return self._ocr_results
+    @property
+    def trans_results(self): return self._trans_results
 
     @show_mask.setter
     def show_mask(self, v: bool):
@@ -98,17 +108,41 @@ class DetectionPipeline(QObject):
             return
         logger.info(f"OCR: {self._ocr_enabled} -> {v}")
         self._ocr_enabled = v
-        self._overlay.show_ocr = v
         if v:
             self._init_ocr()
             self._prev_frame = None
-            self._last_ocr_boxes = None
-            self._last_ocr_frame = None
         else:
             self._ocr_results = []
+            self._trans_results = []
             self._overlay.set_ocr_results([])
+            self._overlay.show_translation = False
+        self._update_overlay_display()
 
-    # ---- OCR init ----
+    @trans_enabled.setter
+    def trans_enabled(self, v: bool):
+        if v == self._trans_enabled:
+            return
+        logger.info(f"Translation: {self._trans_enabled} -> {v}")
+        self._trans_enabled = v
+        self._overlay.show_translation = v
+        if v:
+            self._init_translation()
+            self._prev_frame = None
+        else:
+            self._trans_results = []
+            self._overlay.set_trans_results([])
+        self._update_overlay_display()
+
+    def _update_overlay_display(self):
+        """Refresh overlay with current data."""
+        boxes = self._prev_boxes if self._prev_boxes else []
+        has_mask = self._prev_mask is not None
+        if has_mask:
+            self._overlay.set_data(boxes, self._prev_mask, self._prev_colors)
+        else:
+            self._overlay.set_data(boxes, None, None)
+
+    # ---- init methods ----
     def _init_ocr(self):
         if self._ocr_engine:
             return
@@ -116,11 +150,43 @@ class DetectionPipeline(QObject):
             from ocr.paddleocr_engine import PaddleOCREngine
             self._ocr_engine = PaddleOCREngine(lang="ch")
             if self._ocr_engine.is_loaded:
-                logger.info("OCR engine loaded (inline mode)")
+                logger.info("OCR engine loaded")
             else:
                 logger.error("OCR engine failed to load")
         except Exception as e:
             logger.error(f"OCR init failed: {e}", exc_info=True)
+
+    def _init_translation(self):
+        if self._trans_client and self._trans_manager:
+            return
+        try:
+            from translation.deepseek_client import DeepSeekClient
+            from translation.translation_manager import TranslationManager
+            from translation.cache import TranslationCache
+            import os
+
+            self._trans_cache = TranslationCache(
+                os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "translation_cache.json")
+            )
+            tc = self._config.get_translation_config()
+            self._trans_client = DeepSeekClient(
+                model=tc.get("model", "deepseek-chat")
+            )
+            if not self._trans_client.is_configured:
+                logger.warning("DeepSeek API key not configured. Set DEEPSEEK_API_KEY in .env")
+            else:
+                logger.info("DeepSeek client ready")
+
+            self._trans_manager = TranslationManager(
+                self._trans_client,
+                cache=self._trans_cache,
+                max_workers=tc.get("max_workers", 3),
+            )
+            self._trans_manager.target_language = tc.get("target_language", "zh")
+            logger.info("Translation manager ready")
+        except Exception as e:
+            logger.error(f"Translation init failed: {e}", exc_info=True)
 
     def _init_crop(self):
         if self._crop_proc:
@@ -133,7 +199,6 @@ class DetectionPipeline(QObject):
         except Exception as e:
             logger.error(f"Crop init failed: {e}")
 
-    # ---- mask init ----
     def _init_mask(self):
         if self._mask_gen:
             return
@@ -156,7 +221,7 @@ class DetectionPipeline(QObject):
             pass
         return 1.0
 
-    # ---- helpers (preserved from v0.4.10) ----
+    # ---- helpers ----
     @staticmethod
     def _to_rect(b):
         if len(b) < 8:
@@ -189,7 +254,6 @@ class DetectionPipeline(QObject):
         return (128, 128, 128)
 
     def _filter(self, boxes, scores, rw, rh):
-        """Original v0.4.10 filter with logical dimensions."""
         tp = self._config.get_text_processing_config()
         mc = tp.get("min_confidence", 0.5)
         ma = tp.get("min_text_aspect", 1.8)
@@ -220,7 +284,6 @@ class DetectionPipeline(QObject):
         return out_b
 
     def _detect(self, img, region):
-        """Original v0.4.10 detection + Stage 5 inline OCR."""
         r = self._detector.detect(img)
         pb = r.get("boxes", [])
         ss = r.get("scores", [])
@@ -235,16 +298,13 @@ class DetectionPipeline(QObject):
             self._prev_mask = None
             self._prev_colors = None
 
-        # Stage 5: Inline OCR
         if self._ocr_enabled and self._ocr_engine and self._ocr_engine.is_loaded and lb:
             self._run_ocr(img, lb, region)
 
     def _run_ocr(self, img, boxes, region):
-        """Run OCR inline on detected boxes with caching."""
         self._init_crop()
         if not self._crop_proc:
             return
-
         try:
             h_l, w_l = region["height"], region["width"]
             ocr_img = cv2.resize(img, (w_l, h_l))
@@ -260,9 +320,7 @@ class DetectionPipeline(QObject):
                 crop_img = c["image"]
                 if crop_img is None or crop_img.size == 0:
                     continue
-
                 img_hash = hashlib.md5(crop_img.tobytes()).hexdigest()
-
                 if img_hash in self._ocr_cache:
                     cached = dict(self._ocr_cache[img_hash])
                     cached["id"] = c["id"]
@@ -275,7 +333,6 @@ class DetectionPipeline(QObject):
                 t0 = time.time()
                 enhanced = self._ocr_engine.preprocess(crop_img)
                 rec = self._ocr_engine.recognize(enhanced)
-
                 if rec["confidence"] >= min_conf and rec["text"]:
                     entry = {
                         "id": c["id"],
@@ -287,35 +344,48 @@ class DetectionPipeline(QObject):
                         "time_ms": (time.time() - t0) * 1000,
                     }
                     results.append(entry)
-
                     self._ocr_cache[img_hash] = dict(entry)
                     self._ocr_cache_order.append(img_hash)
                     if len(self._ocr_cache_order) > OCR_CACHE_SIZE:
                         old = self._ocr_cache_order.pop(0)
                         self._ocr_cache.pop(old, None)
 
-                    logger.debug(
-                        f"OCR region {c['id']}: '{rec['text']}' "
-                        f"({rec['confidence']:.2f}) in {entry['time_ms']:.1f}ms"
-                    )
-
             if results:
                 self._ocr_results = results
                 self._overlay.set_ocr_results(results)
-                # Refresh overlay to show OCR text
-                boxes_for_overlay = self._prev_boxes if self._prev_boxes else []
-                has_mask = self._prev_mask is not None
-                if has_mask:
-                    self._overlay.set_data(boxes_for_overlay, self._prev_mask, self._prev_colors)
-                else:
-                    self._overlay.set_data(boxes_for_overlay, None, None)
                 logger.info(f"OCR: {len(results)} results")
+
+                # Stage 6: Fire-and-forget translation (non-blocking)
+                if self._trans_enabled and self._trans_manager:
+                    self._start_async_translation(results)
 
         except Exception as e:
             logger.error(f"OCR run failed: {e}", exc_info=True)
 
+    def _start_async_translation(self, ocr_results):
+        """Start translation in background thread, non-blocking."""
+        with self._trans_lock:
+            if self._trans_pending:
+                return
+            self._trans_pending = True
+
+        def _do_translate():
+            try:
+                translated = self._trans_manager.translate_regions(ocr_results)
+                self._trans_results = translated
+                self._overlay.set_trans_results(translated)
+                logger.info(f"Translation complete: {len(translated)} results")
+            except Exception as e:
+                logger.error(f"Translation failed: {e}", exc_info=True)
+            finally:
+                with self._trans_lock:
+                    self._trans_pending = False
+                self._update_overlay_display()
+
+        t = threading.Thread(target=_do_translate, daemon=True)
+        t.start()
+
     def _build_mask(self, boxes, region, img):
-        """Original v0.4.10 mask builder."""
         h_l, w_l = region["height"], region["width"]
         if self._mask_gen and self._mask_ref:
             mk = self._mask_gen.generate((h_l, w_l), boxes)
@@ -332,7 +402,6 @@ class DetectionPipeline(QObject):
         self._prev_colors = [self._bg_color(img_resized, b) for b in boxes]
 
     def _do_clean_detect(self):
-        """One-time: hide, clean capture, detect, show with full window reset."""
         region = self._config.load_region()
         hwnd = int(self._overlay.winId())
         user32.ShowWindow(hwnd, 0)
@@ -346,10 +415,8 @@ class DetectionPipeline(QObject):
         self._overlay.show()
         self._sent_boxes = None
         self._sent_has_mask = None
-        logger.info(f"Clean detect: {len(self._prev_boxes) if self._prev_boxes else 0} boxes")
 
     def _frame_changed(self, img):
-        """Original v0.4.10 frame diff."""
         if self._prev_frame is None:
             return True
         if self._prev_frame.shape != img.shape:
@@ -357,7 +424,7 @@ class DetectionPipeline(QObject):
         d = np.mean(np.abs(img.astype(np.int16) - self._prev_frame.astype(np.int16))) / 255.0
         return d >= self._diff_thresh
 
-    # ---- start / stop (preserved from v0.4.10) ----
+    # ---- start / stop ----
     def start(self):
         if not self._detector.is_loaded:
             return False
@@ -375,8 +442,9 @@ class DetectionPipeline(QObject):
         self._frame_static = True
         self._ocr_cache = {}
         self._ocr_cache_order = []
-        self._last_ocr_boxes = None
-        self._last_ocr_frame = None
+        self._ocr_results = []
+        self._trans_results = []
+        self._trans_pending = False
         self._frame_count = 0
         self._last_fps = time.time()
         self._dpr = self._dpr_get()
@@ -396,11 +464,15 @@ class DetectionPipeline(QObject):
         self._ocr_cache = {}
         self._ocr_cache_order = []
         self._ocr_results = []
-        self._last_ocr_boxes = None
-        self._last_ocr_frame = None
+        self._trans_results = []
+        self._trans_pending = False
+        if self._trans_cache:
+            self._trans_cache.save()
+        if self._trans_manager:
+            self._trans_manager.shutdown()
         logger.info("Stopped")
 
-    # ---- main tick (preserved from v0.4.10) ----
+    # ---- main tick ----
     def _tick(self):
         if self._busy or not self._running:
             return
@@ -429,10 +501,8 @@ class DetectionPipeline(QObject):
         finally:
             self._busy = False
 
-    # ---- normal mode: hide overlay for clean capture when OCR active ----
     def _tick_normal(self, region):
-        # If OCR is enabled, hide overlay briefly for clean capture
-        if self._ocr_enabled:
+        if self._ocr_enabled or self._trans_enabled:
             hwnd = int(self._overlay.winId())
             user32.ShowWindow(hwnd, 0)
             try:
@@ -457,15 +527,12 @@ class DetectionPipeline(QObject):
             self._sent_boxes = list(boxes) if boxes else None
             self._sent_has_mask = False
 
-    # ---- mask mode (preserved from v0.4.10) ----
     def _tick_mask(self, region):
         img = capture_region(region)
         if img.size == 0:
             return
-
         changed = self._frame_changed(img)
         self._frame_static = not changed
-
         if changed:
             self._prev_frame = img.copy()
             hwnd = int(self._overlay.winId())
@@ -480,7 +547,6 @@ class DetectionPipeline(QObject):
             self._overlay.show()
             self._sent_boxes = None
             self._sent_has_mask = None
-
         boxes = self._prev_boxes if self._prev_boxes else []
         has_mask = self._prev_mask is not None
         if boxes != self._sent_boxes or has_mask != self._sent_has_mask:

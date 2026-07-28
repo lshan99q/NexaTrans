@@ -1,28 +1,30 @@
-﻿"""
-NexaTrans - Text Detection Overlay (Stage 5)
-Displays green detection boxes, mask fills, and OCR recognized text.
+﻿# -*- coding: utf-8 -*-
+"""
+NexaTrans - Text Detection Overlay (Stage 6)
+Displays detection boxes, mask fills, OCR text, and translation results.
 """
 
 import logging
-import numpy as np
 from PySide6.QtWidgets import QWidget
 from PySide6.QtCore import Qt, QPointF, QRectF
 from PySide6.QtGui import (
-    QPainter, QPen, QColor, QPolygonF, QFont, QPixmap, QImage,
+    QPainter, QPen, QColor, QPolygonF, QFont,
 )
 
 logger = logging.getLogger("NexaTrans.TextOverlay")
 
 
 class TextOverlay(QWidget):
-    """Overlay widget showing detection boxes, masks, and OCR text."""
+    """Overlay widget: boxes, masks, OCR text, translated text."""
 
     def __init__(self):
         super().__init__()
         self._boxes = []
         self._mask_colors = None
         self._ocr_results = {}
+        self._trans_results = {}
         self._show_ocr = False
+        self._show_translation = False
         self._show_boxes = True
 
         self.setWindowFlags(
@@ -59,7 +61,16 @@ class TextOverlay(QWidget):
             rid = r.get("id")
             if rid is not None:
                 self._ocr_results[rid] = r
-        if self._show_ocr and self.isVisible():
+        if (self._show_ocr or self._show_translation) and self.isVisible():
+            self.update()
+
+    def set_trans_results(self, results: list):
+        self._trans_results = {}
+        for r in results:
+            rid = r.get("id")
+            if rid is not None:
+                self._trans_results[rid] = r
+        if self._show_translation and self.isVisible():
             self.update()
 
     @property
@@ -69,6 +80,15 @@ class TextOverlay(QWidget):
     @show_ocr.setter
     def show_ocr(self, v: bool):
         self._show_ocr = v
+        self.update()
+
+    @property
+    def show_translation(self) -> bool:
+        return self._show_translation
+
+    @show_translation.setter
+    def show_translation(self, v: bool):
+        self._show_translation = v
         self.update()
 
     @property
@@ -89,16 +109,15 @@ class TextOverlay(QWidget):
         self._boxes = []
         self._mask_colors = None
         self._ocr_results = {}
+        self._trans_results = {}
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        # Draw mask fills (opaque colored rectangles)
+        # Mask fills
         if self._mask_colors and self._boxes:
-            for i, (box, (r_val, g_val, b_val)) in enumerate(
-                zip(self._boxes, self._mask_colors)
-            ):
+            for box, (r_val, g_val, b_val) in zip(self._boxes, self._mask_colors):
                 if len(box) < 8:
                     continue
                 xs = [box[j] for j in range(0, len(box), 2)]
@@ -111,7 +130,7 @@ class TextOverlay(QWidget):
                 painter.setPen(Qt.NoPen)
                 painter.drawRect(QRectF(x1, y1, x2 - x1, y2 - y1))
 
-        # Draw green detection boxes
+        # Green boxes
         if self._show_boxes:
             for box in self._boxes:
                 if len(box) < 8:
@@ -126,46 +145,69 @@ class TextOverlay(QWidget):
                 painter.setPen(QPen(QColor(0, 255, 100, 200), 2))
                 painter.drawPolygon(poly)
 
-        # Draw OCR text (no background, just white text with thin outline)
-        if self._show_ocr and self._ocr_results and self._boxes:
-            for i, box in enumerate(self._boxes):
-                rid = i + 1
-                result = self._ocr_results.get(rid)
-                if not result:
-                    continue
-                text = result.get("text", "")
+        # Text overlay (translation or OCR)
+        self._draw_text(painter)
+
+        painter.end()
+
+    def _draw_text(self, painter):
+        # Determine text source: translation > OCR
+        use_trans = self._show_translation and self._trans_results
+        results = self._trans_results if use_trans else self._ocr_results
+        show = self._show_translation or self._show_ocr
+
+        if not show or not results or not self._boxes:
+            return
+
+        for i, box in enumerate(self._boxes):
+            rid = i + 1
+            result = results.get(rid)
+            if not result:
+                continue
+
+            # Translation mode: show translated text
+            if use_trans:
+                text = result.get("translation", "")
                 if not text:
-                    continue
+                    text = result.get("text", "")
+            else:
+                text = result.get("text", "")
 
-                if len(box) < 8:
-                    continue
-                xs = [box[j] for j in range(0, len(box), 2)]
-                ys = [box[j + 1] for j in range(0, len(box), 2)]
-                x1, y1 = min(xs), min(ys)
-                x2, y2 = max(xs), max(ys)
-                bw = x2 - x1
-                bh = y2 - y1
+            if not text:
+                continue
 
-                font = QFont("Microsoft YaHei", max(10, min(18, int(bh * 0.7))))
-                painter.setFont(font)
+            if len(box) < 8:
+                continue
+            xs = [box[j] for j in range(0, len(box), 2)]
+            ys = [box[j + 1] for j in range(0, len(box), 2)]
+            x1, y1 = min(xs), min(ys)
+            x2, y2 = max(xs), max(ys)
+            bw = x2 - x1
+            bh = y2 - y1
 
-                fm = painter.fontMetrics()
-                text_width = fm.horizontalAdvance(text)
-                text_height = fm.height()
+            font = QFont("Microsoft YaHei", max(10, min(18, int(bh * 0.7))))
+            painter.setFont(font)
+            fm = painter.fontMetrics()
+            text_width = fm.horizontalAdvance(text)
+            text_height = fm.height()
+            tx = x1 + max(0, (bw - text_width) // 2)
+            ty = y1 + max(0, (bh - text_height) // 2) + fm.ascent()
 
-                tx = x1 + max(0, (bw - text_width) // 2)
-                ty = y1 + max(0, (bh - text_height) // 2) + fm.ascent()
-
-                # Draw outline effect (dark shadow under text for readability)
+            # Translation uses a different color scheme
+            if use_trans:
+                # Light blue outline
+                painter.setPen(QColor(0, 100, 200, 180))
+                for dx, dy in [(-1, -1), (1, -1), (-1, 1), (1, 1)]:
+                    painter.drawText(int(tx + dx), int(ty + dy), text)
+                painter.setPen(QColor(200, 230, 255))
+            else:
+                # Dark outline + white text (OCR)
                 painter.setPen(QColor(0, 0, 0, 160))
                 for dx, dy in [(-1, -1), (1, -1), (-1, 1), (1, 1)]:
                     painter.drawText(int(tx + dx), int(ty + dy), text)
-
-                # Draw white text on top
                 painter.setPen(QColor(255, 255, 255))
-                painter.drawText(int(tx), int(ty), text)
 
-        painter.end()
+            painter.drawText(int(tx), int(ty), text)
 
     def closeEvent(self, event):
         super().closeEvent(event)

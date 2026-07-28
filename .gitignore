@@ -4,3 +4,5 @@ __pycache__/
 logs/
 .env
 *.log
+config/local.json
+translation_cache.json
