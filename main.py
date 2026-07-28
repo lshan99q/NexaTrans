@@ -106,7 +106,7 @@ def main():
 
         app = QApplication(sys.argv)
         app.setApplicationName("NexaTrans")
-        app.setApplicationVersion("1.0.0")
+        app.setApplicationVersion("1.1.0")
         app.setOrganizationName("NexaTrans")
 
         config_manager = ConfigManager()

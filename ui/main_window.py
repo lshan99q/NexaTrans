@@ -1,6 +1,6 @@
 ﻿# -*- coding: utf-8 -*-
 """
-NexaTrans - Main Window v1.0
+NexaTrans - Main Window v1.1
 System tray: minimize to tray, background translation, tray controls.
 """
 
@@ -87,7 +87,7 @@ class MainWindow(QWidget):
         self._setup_tray()
         self._load_config()
         self._load_region()
-        logger.info("MainWindow v1.0 ready")
+        logger.info("MainWindow v1.1 ready")
 
     # ═══════════════ System Tray ═══════════════
 
@@ -152,7 +152,7 @@ class MainWindow(QWidget):
     # ═══════════════ UI Setup ═══════════════
 
     def _setup_ui(self):
-        self.setWindowTitle("NexaTrans v1.0")
+        self.setWindowTitle("NexaTrans v1.1")
         self.setFixedSize(380, 260)
 
         css = """
@@ -204,7 +204,7 @@ class MainWindow(QWidget):
         title.setStyleSheet("color: #0af; background: transparent;")
         layout.addWidget(title)
 
-        ver = QLabel("v1.0 - 屏幕实时AI翻译")
+        ver = QLabel("v1.1 - 屏幕实时AI翻译")
         ver.setAlignment(Qt.AlignCenter)
         ver.setStyleSheet("color: #666; font-size: 11px; background: transparent;")
         layout.addWidget(ver)

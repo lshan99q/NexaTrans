@@ -1,9 +1,9 @@
 {
     "region": {
-        "height": 77,
-        "width": 711,
-        "x": 482,
-        "y": 166
+        "height": 71,
+        "width": 678,
+        "x": 17,
+        "y": 172
     },
     "overlay": {
         "opacity": 0.5,
@@ -38,7 +38,7 @@
     "ui": {
         "show_mask": true,
         "show_boxes": false,
-        "show_redbox": false,
+        "show_redbox": true,
         "show_ocr": true,
         "show_translation": true
     }
