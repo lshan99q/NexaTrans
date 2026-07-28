@@ -1,12 +1,13 @@
 """
-NexaTrans - Detection Pipeline v0.4.7
+NexaTrans - Detection Pipeline v0.4.8
 
-Unified clean capture using Win32 ShowWindow (synchronous).
-Frame-diff on clean game frames. Exposes is_static for UI.
+Strategy: hide overlay for the ENTIRE tick (capture + detect),
+then show it with final content. Force repaint after showing.
+No conditional rendering - always push to overlay.
 """
 
 import logging, time, ctypes, numpy as np, cv2
-from PySide6.QtCore import QTimer, QObject
+from PySide6.QtCore import QTimer, QObject, Qt
 from PySide6.QtWidgets import QApplication
 from screen.screenshot import capture_region
 from detection.dbnet_detector import DBNetDetector
@@ -43,11 +44,9 @@ class DetectionPipeline(QObject):
         self._prev_boxes = None
         self._prev_mask = None
         self._prev_colors = None
-        self._sent_boxes = None
-        self._sent_has_mask = None
         self._diff_thresh = 0.008
         self._frame_static = True
-        logger.info(f"Pipeline v0.4.7 ready (target={target_fps}FPS)")
+        logger.info(f"Pipeline v0.4.8 ready (target={target_fps}FPS)")
 
     # ── properties ──────────────────────────────────────────────
     @property
@@ -75,8 +74,6 @@ class DetectionPipeline(QObject):
         else:
             self._prev_mask = None
             self._prev_colors = None
-        self._sent_boxes = None
-        self._sent_has_mask = None
 
     # ── init ────────────────────────────────────────────────────
     def _init_mask(self):
@@ -201,16 +198,6 @@ class DetectionPipeline(QObject):
         self._build_mask(self._prev_boxes, region, self._prev_clean)
         logger.info(f"Mask built: {len(self._prev_boxes)} boxes")
 
-    # ── clean capture (Win32 ShowWindow - synchronous) ──────────
-    def _capture_clean(self, region):
-        """Hide overlay via synchronous Win32 ShowWindow, capture, show."""
-        hwnd = int(self._overlay.winId())
-        user32.ShowWindow(hwnd, SW_HIDE)
-        try:
-            return capture_region(region)
-        finally:
-            user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
-
     def _frame_changed(self, img):
         if self._prev_clean is None:
             return True
@@ -232,8 +219,6 @@ class DetectionPipeline(QObject):
         self._prev_boxes = None
         self._prev_mask = None
         self._prev_colors = None
-        self._sent_boxes = None
-        self._sent_has_mask = None
         self._frame_static = True
         self._frame_count = 0
         self._last_fps = time.time()
@@ -264,25 +249,39 @@ class DetectionPipeline(QObject):
                 self._overlay.update_region(region)
                 self._last_region = dict(region)
                 self._prev_clean = None
-                self._sent_boxes = None
-                self._sent_has_mask = None
 
-            # Clean capture via Win32 ShowWindow
-            img = self._capture_clean(region)
+            # ---- HIDE overlay ----
+            hwnd = int(self._overlay.winId())
+            user32.ShowWindow(hwnd, SW_HIDE)
+
+            # ---- Capture clean ----
+            img = capture_region(region)
             if img.size == 0:
+                user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
                 self._busy = False
                 return
 
-            # Frame diff on clean image
+            # ---- Frame diff + detect (overlay hidden) ----
             changed = self._frame_changed(img)
             self._frame_static = not changed
-
             if changed:
                 self._prev_clean = img.copy()
                 self._detect(img, region)
 
-            # Render
-            self._render_overlay()
+            # ---- Prepare overlay data ----
+            boxes = self._prev_boxes if self._prev_boxes else []
+            has_mask = self._show_mask and self._prev_mask is not None
+            if has_mask:
+                self._overlay.set_data(boxes, self._prev_mask, self._prev_colors)
+            else:
+                self._overlay.set_data(boxes, None, None)
+
+            # ---- SHOW overlay + force repaint ----
+            user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
+            # Force Qt to properly re-setup the layered window
+            self._overlay.setAttribute(Qt.WA_TranslucentBackground, False)
+            self._overlay.setAttribute(Qt.WA_TranslucentBackground, True)
+            self._overlay.repaint()
 
             self._frame_count += 1
             now = time.time()
@@ -294,17 +293,6 @@ class DetectionPipeline(QObject):
             logger.error(f"Tick: {e}", exc_info=True)
         finally:
             self._busy = False
-
-    def _render_overlay(self):
-        boxes = self._prev_boxes if self._prev_boxes else []
-        has_mask = self._show_mask and self._prev_mask is not None
-        if boxes != self._sent_boxes or has_mask != self._sent_has_mask:
-            if has_mask:
-                self._overlay.set_data(boxes, self._prev_mask, self._prev_colors)
-            else:
-                self._overlay.set_data(boxes, None, None)
-            self._sent_boxes = list(boxes) if boxes else None
-            self._sent_has_mask = has_mask
 
     def cleanup(self):
         self.stop()
