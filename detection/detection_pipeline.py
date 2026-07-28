@@ -11,6 +11,7 @@ from PySide6.QtCore import QTimer, QObject
 from PySide6.QtWidgets import QApplication
 from screen.screenshot import capture_region
 from detection.dbnet_detector import DBNetDetector
+from ocr.ocr_manager import OCRManager
 from overlay.text_overlay import TextOverlay
 
 logger = logging.getLogger("NexaTrans.DetectionPipeline")
@@ -46,9 +47,10 @@ class DetectionPipeline(QObject):
         self._sent_has_mask = None
         self._diff_thresh = 0.008
         self._frame_static = True
+        self._ocr_manager = None
         logger.info(f"Pipeline v0.4.10 ready (target={target_fps}FPS)")
 
-    # ── properties ──────────────────────────────────────────────
+    # 鈹€鈹€ properties 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     @property
     def detector(self): return self._detector
     @property
@@ -77,7 +79,7 @@ class DetectionPipeline(QObject):
         self._sent_boxes = None
         self._sent_has_mask = None
 
-    # ── init ────────────────────────────────────────────────────
+    # 鈹€鈹€ init 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     def _init_mask(self):
         if self._mask_gen:
             return
@@ -100,7 +102,7 @@ class DetectionPipeline(QObject):
             pass
         return 1.0
 
-    # ── helpers ─────────────────────────────────────────────────
+    # 鈹€鈹€ helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     @staticmethod
     def _to_rect(b):
         if len(b) < 8:
@@ -220,7 +222,7 @@ class DetectionPipeline(QObject):
         d = np.mean(np.abs(img.astype(np.int16) - self._prev_frame.astype(np.int16))) / 255.0
         return d >= self._diff_thresh
 
-    # ── start / stop ────────────────────────────────────────────
+    # 鈹€鈹€ start / stop 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     def start(self):
         if not self._detector.is_loaded:
             return False
@@ -236,6 +238,7 @@ class DetectionPipeline(QObject):
         self._sent_boxes = None
         self._sent_has_mask = None
         self._frame_static = True
+        self._ocr_manager = None
         self._frame_count = 0
         self._last_fps = time.time()
         self._dpr = self._dpr_get()
@@ -244,6 +247,7 @@ class DetectionPipeline(QObject):
         self._last_region = dict(region)
         self._overlay.show_overlay()
         self._timer.start(self._interval)
+        self._start_ocr()
         logger.info(f"Started (DPR={self._dpr})")
         return True
 
@@ -251,10 +255,11 @@ class DetectionPipeline(QObject):
         self._running = False
         self._timer.stop()
         self._overlay.hide_overlay()
+        self._stop_ocr()
         self._prev_frame = None
         logger.info("Stopped")
 
-    # ── main tick ───────────────────────────────────────────────
+    # 鈹€鈹€ main tick 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     def _tick(self):
         if self._busy or not self._running:
             return
@@ -283,7 +288,7 @@ class DetectionPipeline(QObject):
         finally:
             self._busy = False
 
-    # ── normal mode: direct capture, no hide ────────────────────
+    # 鈹€鈹€ normal mode: direct capture, no hide 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
     def _tick_normal(self, region):
         img = capture_region(region)
         if img.size == 0:
@@ -294,6 +299,7 @@ class DetectionPipeline(QObject):
         if changed:
             self._prev_frame = img.copy()
             self._detect(img, region)
+            self._submit_ocr(img, region)
 
         boxes = self._prev_boxes if self._prev_boxes else []
         if boxes != self._sent_boxes or self._sent_has_mask:
@@ -301,7 +307,7 @@ class DetectionPipeline(QObject):
             self._sent_boxes = list(boxes) if boxes else None
             self._sent_has_mask = False
 
-    # ── mask mode: capture with mask for diff, clean on change ──
+    # 鈹€鈹€ mask mode: capture with mask for diff, clean on change 鈹€鈹€
     def _tick_mask(self, region):
         # Capture with mask visible (for frame-diff)
         img = capture_region(region)
@@ -322,6 +328,7 @@ class DetectionPipeline(QObject):
                 user32.ShowWindow(hwnd, 4)
             if clean.size > 0:
                 self._detect(clean, region)
+                self._submit_ocr(clean, region)
             # Reset window to ensure rendering works
             self._overlay.hide()
             self._overlay.show()
@@ -339,6 +346,35 @@ class DetectionPipeline(QObject):
             self._sent_boxes = list(boxes) if boxes else None
             self._sent_has_mask = has_mask
 
+
+
+    # ── OCR integration ─────────────────────────────────────────
+    def _start_ocr(self):
+        try:
+            cfg = self._config.get_ocr_config()
+            def on_result(results):
+                # Update overlay with OCR text
+                self._overlay.set_ocr_results(results)
+            self._ocr_manager = OCRManager(cfg, on_result=on_result)
+            self._ocr_manager.start()
+            logger.info("OCR manager started")
+        except Exception as e:
+            logger.error(f"OCR start failed: {e}")
+            self._ocr_manager = None
+
+    def _stop_ocr(self):
+        if self._ocr_manager:
+            self._ocr_manager.stop()
+            self._ocr_manager = None
+
+    def _submit_ocr(self, img, region):
+        if self._ocr_manager is None or not self._prev_boxes:
+            return
+        try:
+            self._ocr_manager.submit(img, self._prev_boxes)
+        except Exception as e:
+            logger.debug(f"OCR submit: {e}")
     def cleanup(self):
+        self._stop_ocr()
         self.stop()
         self._overlay.close()

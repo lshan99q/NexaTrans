@@ -1,4 +1,4 @@
-﻿"""
+"""
 NexaTrans - Text Detection Overlay
 """
 
@@ -17,6 +17,7 @@ class TextOverlay(QWidget):
         super().__init__()
         self._boxes = []
         self._mask_colors = None
+        self._ocr_results = []
 
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -46,7 +47,14 @@ class TextOverlay(QWidget):
 
     def hide_overlay(self):
         self.hide(); self._boxes = []; self._mask_colors = None
+        self._ocr_results = []
 
+
+
+    def set_ocr_results(self, results: list):
+        """Update OCR text results for display."""
+        self._ocr_results = results or []
+        self.update()
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -73,6 +81,24 @@ class TextOverlay(QWidget):
             painter.setPen(QPen(QColor(0, 255, 100, 200), 2))
             painter.drawPolygon(poly)
 
+        # OCR text overlay
+        for r in self._ocr_results:
+            box = r.get("box", [])
+            text = r.get("text", "")
+            if len(box) < 8 or not text:
+                continue
+            xs = [box[i] for i in range(0, len(box), 2)]
+            ys = [box[i + 1] for i in range(0, len(box), 2)]
+            x, y = min(xs), min(ys)
+            # Draw text with background
+            fm = painter.fontMetrics()
+            tw = fm.horizontalAdvance(text) + 8
+            th = fm.height() + 4
+            painter.setBrush(QColor(0, 0, 0, 200))
+            painter.setPen(Qt.NoPen)
+            painter.drawRect(QRectF(x, y - th, tw, th))
+            painter.setPen(QPen(QColor(255, 255, 255), 1))
+            painter.drawText(QPointF(x + 4, y - 4), text)
         painter.end()
 
     def closeEvent(self, event):

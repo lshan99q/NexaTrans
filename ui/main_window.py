@@ -143,7 +143,11 @@ class MainWindow(QWidget):
         self.mask_checkbox = QCheckBox("显示 Mask (Stage 4)")
         self.mask_checkbox.setEnabled(False)
         self.mask_checkbox.toggled.connect(self._on_mask_toggle)
+        self.ocr_checkbox = QCheckBox("?? OCR (Stage 5)")
+        self.ocr_checkbox.setEnabled(False)
+        self.ocr_checkbox.toggled.connect(self._on_ocr_toggle)
         dl.addWidget(self.mask_checkbox)
+        dl.addWidget(self.ocr_checkbox)
 
         dbl = QHBoxLayout(); dbl.addStretch()
         self.detect_btn = QPushButton("开始检测")
@@ -233,6 +237,11 @@ class MainWindow(QWidget):
             self._overlay.update_region(self.config_manager.load_region())
         self._overlay.set_test_visible(checked)
 
+    def _on_ocr_toggle(self, checked):
+        if self._pipeline and self._pipeline.ocr_manager:
+            self._pipeline.ocr_manager.is_enabled = checked
+            logger.info(f"OCR toggled: {checked}")
+
     def _on_mask_toggle(self, checked):
         if self._pipeline:
             self._pipeline.show_mask = checked
@@ -271,6 +280,7 @@ class MainWindow(QWidget):
             if self._pipeline.detector.is_loaded:
                 self.model_status_label.setText("模型: DBNet++ (ONNX)")
                 self.mask_checkbox.setEnabled(True)
+                self.ocr_checkbox.setEnabled(True)
             else:
                 self.model_status_label.setText("模型: 加载失败"); self._pipeline = None
         except Exception as e:

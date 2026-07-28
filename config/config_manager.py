@@ -1,4 +1,4 @@
-﻿"""
+"""
 NexaTrans - Config Manager
 Configuration file read/write management module.
 """
@@ -30,6 +30,15 @@ DEFAULT_CONFIG = {
         "min_text_aspect": 1.8,
         "max_icon_aspect": 1.4,
         "min_area_ratio": 0.005,
+    },
+    "ocr": {
+        "enabled": True,
+        "engine": "paddleocr",
+        "device": "auto",
+        "confidence_threshold": 0.5,
+        "target_height": 48,
+        "clahe_clip": 2.0,
+        "cache_size": 500,
     },
 }
 
