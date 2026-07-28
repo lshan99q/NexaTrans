@@ -1,9 +1,8 @@
 """
-NexaTrans - Detection Pipeline v0.4.5
+NexaTrans - Detection Pipeline v0.4.6
 
-Unified approach: BOTH modes capture clean frames (brief setVisible toggle).
-Frame-diff on the SAME clean game frames, regardless of overlay state.
-Re-detect only when game content actually changes.
+Unified clean capture + frame-diff for both modes.
+Exposes is_static property for UI display.
 """
 
 import logging, time, numpy as np, cv2
@@ -36,14 +35,15 @@ class DetectionPipeline(QObject):
         self._fps = 0.0
         self._last_region = None
         self._dpr = 1.0
-        self._prev_clean = None  # always a clean frame (no overlay)
+        self._prev_clean = None
         self._prev_boxes = None
         self._prev_mask = None
         self._prev_colors = None
         self._sent_boxes = None
         self._sent_has_mask = None
         self._diff_thresh = 0.008
-        logger.info(f"Pipeline v0.4.5 ready (target={target_fps}FPS)")
+        self._frame_static = True  # exposed for UI
+        logger.info(f"Pipeline v0.4.6 ready (target={target_fps}FPS)")
 
     # ── properties ──────────────────────────────────────────────
     @property
@@ -56,6 +56,8 @@ class DetectionPipeline(QObject):
     def fps(self): return self._fps
     @property
     def show_mask(self): return self._show_mask
+    @property
+    def is_static(self): return self._frame_static
 
     @show_mask.setter
     def show_mask(self, v: bool):
@@ -63,14 +65,12 @@ class DetectionPipeline(QObject):
             return
         logger.info(f"Mask: {self._show_mask} -> {v}")
         self._show_mask = v
-
         if v:
             self._init_mask()
             self._build_mask_now()
         else:
             self._prev_mask = None
             self._prev_colors = None
-        # Force re-render with new mask state
         self._sent_boxes = None
         self._sent_has_mask = None
 
@@ -160,7 +160,6 @@ class DetectionPipeline(QObject):
         return out_b
 
     def _detect(self, img, region):
-        """Run DBNet on clean image, update boxes + optional mask."""
         r = self._detector.detect(img)
         pb = r.get("boxes", [])
         ss = r.get("scores", [])
@@ -169,7 +168,6 @@ class DetectionPipeline(QObject):
         if lb and ss:
             lb = self._filter(lb, ss, region["width"], region["height"])
         self._prev_boxes = lb
-
         if self._show_mask and lb:
             self._build_mask(lb, region, img)
         else:
@@ -193,24 +191,23 @@ class DetectionPipeline(QObject):
         self._prev_colors = [self._bg_color(img_resized, b) for b in boxes]
 
     def _build_mask_now(self):
-        """Generate mask from current cached boxes + last clean frame."""
         if not self._prev_boxes or self._prev_clean is None:
             return
         region = self._config.load_region()
         self._build_mask(self._prev_boxes, region, self._prev_clean)
         logger.info(f"Mask built: {len(self._prev_boxes)} boxes")
 
-    # ── unified clean capture ───────────────────────────────────
+    # ── clean capture ───────────────────────────────────────────
     def _capture_clean(self, region):
-        """Capture without overlay. Brief setVisible toggle."""
+        """Hide overlay, flush, capture, show. Returns clean frame."""
         self._overlay.setVisible(False)
+        QApplication.processEvents()
         try:
             return capture_region(region)
         finally:
             self._overlay.setVisible(True)
 
     def _frame_changed(self, img):
-        """Compare clean img with previous clean frame."""
         if self._prev_clean is None:
             return True
         if self._prev_clean.shape != img.shape:
@@ -233,6 +230,7 @@ class DetectionPipeline(QObject):
         self._prev_colors = None
         self._sent_boxes = None
         self._sent_has_mask = None
+        self._frame_static = True
         self._frame_count = 0
         self._last_fps = time.time()
         self._dpr = self._dpr_get()
@@ -251,7 +249,7 @@ class DetectionPipeline(QObject):
         self._prev_clean = None
         logger.info("Stopped")
 
-    # ── main tick (UNIFIED) ─────────────────────────────────────
+    # ── main tick ───────────────────────────────────────────────
     def _tick(self):
         if self._busy or not self._running:
             return
@@ -265,18 +263,21 @@ class DetectionPipeline(QObject):
                 self._sent_boxes = None
                 self._sent_has_mask = None
 
-            # Clean capture (same for both modes)
+            # Clean capture
             img = self._capture_clean(region)
             if img.size == 0:
                 self._busy = False
                 return
 
-            # Frame diff on clean frames
-            if self._frame_changed(img):
+            # Frame diff
+            changed = self._frame_changed(img)
+            self._frame_static = not changed
+
+            if changed:
                 self._prev_clean = img.copy()
                 self._detect(img, region)
 
-            # Render based on mode
+            # Render
             self._render_overlay()
 
             self._frame_count += 1
@@ -291,10 +292,8 @@ class DetectionPipeline(QObject):
             self._busy = False
 
     def _render_overlay(self):
-        """Render boxes + optional mask to overlay."""
         boxes = self._prev_boxes if self._prev_boxes else []
         has_mask = self._show_mask and self._prev_mask is not None
-
         if boxes != self._sent_boxes or has_mask != self._sent_has_mask:
             if has_mask:
                 self._overlay.set_data(boxes, self._prev_mask, self._prev_colors)
@@ -303,7 +302,6 @@ class DetectionPipeline(QObject):
             self._sent_boxes = list(boxes) if boxes else None
             self._sent_has_mask = has_mask
 
-    # ── cleanup ─────────────────────────────────────────────────
     def cleanup(self):
         self.stop()
         self._overlay.close()

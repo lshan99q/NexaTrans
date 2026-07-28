@@ -1,4 +1,4 @@
-﻿"""
+"""
 NexaTrans - Main Window
 Stage 3: DBNet++ text detection with start/stop and FPS display.
 Stage 4: Mask overlay toggle + filter parameter sliders.
@@ -139,6 +139,7 @@ class MainWindow(QWidget):
         self.model_status_label = QLabel("模型: 未加载"); dl.addWidget(self.model_status_label)
         self.fps_label = QLabel("帧率: --"); dl.addWidget(self.fps_label)
         self.box_count_label = QLabel("检测框: 0"); dl.addWidget(self.box_count_label)
+        self.static_label = QLabel("静态: --"); dl.addWidget(self.static_label)
         self.mask_checkbox = QCheckBox("显示 Mask (Stage 4)")
         self.mask_checkbox.setEnabled(False)
         self.mask_checkbox.toggled.connect(self._on_mask_toggle)
@@ -212,6 +213,8 @@ class MainWindow(QWidget):
             self.fps_label.setText(f"帧率: {self._pipeline.fps:.1f}")
             boxes = self._pipeline.overlay._boxes if hasattr(self._pipeline.overlay, "_boxes") else []
             self.box_count_label.setText(f"检测框: {len(boxes)}")
+            static = self._pipeline.is_static if hasattr(self._pipeline, 'is_static') else True
+            self.static_label.setText(f"静态: {'是' if static else '否'}")
 
     def _on_test_toggle(self, checked):
         if checked:
@@ -274,6 +277,7 @@ class MainWindow(QWidget):
         if self._pipeline: self._pipeline.stop()
         self.detect_btn.setText("开始检测"); self._fps_timer.stop()
         self.fps_label.setText("帧率: --"); self.box_count_label.setText("检测框: 0")
+        self.static_label.setText("静态: --")
 
     def closeEvent(self, event):
         if self._pipeline: self._pipeline.cleanup()
