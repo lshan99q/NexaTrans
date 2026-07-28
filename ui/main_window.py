@@ -123,7 +123,7 @@ class MainWindow(QWidget):
         title.setStyleSheet("color: #0af; background: transparent;")
         layout.addWidget(title)
 
-        ver = QLabel("v1.0 · Screen AI Translation")
+        ver = QLabel("v1.0 · 屏幕实时AI翻译")
         ver.setAlignment(Qt.AlignCenter)
         ver.setStyleSheet("color: #666; font-size: 11px; background: transparent;")
         layout.addWidget(ver)
@@ -133,7 +133,7 @@ class MainWindow(QWidget):
         layout.addWidget(sep)
 
         # Start button
-        self.start_btn = QPushButton("Start Translate")
+        self.start_btn = QPushButton("开始翻译")
         self.start_btn.setObjectName("startBtn")
         self.start_btn.setCursor(Qt.PointingHandCursor)
         self.start_btn.clicked.connect(self._on_start)
@@ -141,25 +141,25 @@ class MainWindow(QWidget):
 
         # Region + Settings row
         btn_row = QHBoxLayout()
-        self.region_btn = QPushButton("Select Region")
+        self.region_btn = QPushButton("框选区域")
         self.region_btn.setCursor(Qt.PointingHandCursor)
         self.region_btn.clicked.connect(self._on_select_region)
         btn_row.addWidget(self.region_btn)
 
-        self.settings_btn = QPushButton("Settings")
+        self.settings_btn = QPushButton("设  置")
         self.settings_btn.setCursor(Qt.PointingHandCursor)
         self.settings_btn.clicked.connect(self._on_toggle_settings)
         btn_row.addWidget(self.settings_btn)
         layout.addLayout(btn_row)
 
         # Region info
-        self.region_info = QLabel("Region: none")
+        self.region_info = QLabel("区域: 未选择")
         self.region_info.setAlignment(Qt.AlignCenter)
         self.region_info.setStyleSheet("color: #888; font-size: 11px; background: transparent;")
         layout.addWidget(self.region_info)
 
         # Status
-        self.status_label = QLabel("- Ready")
+        self.status_label = QLabel("● 就绪")
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setStyleSheet("color: #888; font-size: 12px; background: transparent;")
         layout.addWidget(self.status_label)
@@ -179,26 +179,26 @@ class MainWindow(QWidget):
         self.api_key_input.setText(_read_env_key())
         self.api_key_input.setEchoMode(QLineEdit.Password)
         self.api_key_input.textChanged.connect(self._on_api_key_change)
-        al.addWidget(QLabel("API Key:"))
+        al.addWidget(QLabel("API密钥:"))
         al.addWidget(self.api_key_input)
         ag.setLayout(al)
         sl.addWidget(ag)
 
         # Toggles
-        tg = QGroupBox("Overlay")
+        tg = QGroupBox("覆盖层")
         tfl = QVBoxLayout()
-        self.mask_check = QCheckBox("Show Mask")
+        self.mask_check = QCheckBox("显示Mask遮罩")
         self.mask_check.toggled.connect(self._on_mask_toggle)
         tfl.addWidget(self.mask_check)
-        self.boxes_check = QCheckBox("Show Green Boxes")
+        self.boxes_check = QCheckBox("显示绿框")
         self.boxes_check.setChecked(True)
         self.boxes_check.toggled.connect(self._on_boxes_toggle)
         tfl.addWidget(self.boxes_check)
-        self.ocr_check = QCheckBox("Enable OCR")
+        self.ocr_check = QCheckBox("启用OCR识别")
         self.ocr_check.setChecked(True)
         self.ocr_check.toggled.connect(self._on_ocr_toggle)
         tfl.addWidget(self.ocr_check)
-        self.trans_check = QCheckBox("Enable Translation")
+        self.trans_check = QCheckBox("启用AI翻译")
         self.trans_check.setChecked(True)
         self.trans_check.toggled.connect(self._on_trans_toggle)
         tfl.addWidget(self.trans_check)
@@ -206,24 +206,24 @@ class MainWindow(QWidget):
         sl.addWidget(tg)
 
         # Filters
-        fg = QGroupBox("Filters")
+        fg = QGroupBox("过滤参数")
         ffl = QFormLayout()
 
         self._s_min_conf = self._make_s(10, 90, 50)
         self._l_min_conf = QLabel("0.50")
-        ffl.addRow("Min Confidence:", self._make_sr(self._s_min_conf, self._l_min_conf))
+        ffl.addRow("最低置信度:", self._make_sr(self._s_min_conf, self._l_min_conf))
 
         self._s_min_asp = self._make_s(12, 30, 18)
         self._l_min_asp = QLabel("1.8")
-        ffl.addRow("Min Text Aspect:", self._make_sr(self._s_min_asp, self._l_min_asp))
+        ffl.addRow("文字长宽比:", self._make_sr(self._s_min_asp, self._l_min_asp))
 
         self._s_max_icon = self._make_s(10, 18, 14)
         self._l_max_icon = QLabel("1.4")
-        ffl.addRow("Max Icon Aspect:", self._make_sr(self._s_max_icon, self._l_max_icon))
+        ffl.addRow("图标宽高比:", self._make_sr(self._s_max_icon, self._l_max_icon))
 
         self._s_min_area = self._make_s(1, 20, 5)
         self._l_min_area = QLabel("0.005")
-        ffl.addRow("Min Area Ratio:", self._make_sr(self._s_min_area, self._l_min_area))
+        ffl.addRow("最小面积比:", self._make_sr(self._s_min_area, self._l_min_area))
 
         fg.setLayout(ffl)
         sl.addWidget(fg)
@@ -250,7 +250,7 @@ class MainWindow(QWidget):
     def _make_sr(self, s, l):
         w = QWidget(); w.setStyleSheet("background: transparent;")
         r = QHBoxLayout(); r.setContentsMargins(0, 0, 0, 0)
-        r.addWidget(QLabel("Low")); r.addWidget(s); r.addWidget(QLabel("High")); r.addWidget(l)
+        r.addWidget(QLabel("低")); r.addWidget(s); r.addWidget(QLabel("高")); r.addWidget(l)
         w.setLayout(r); return w
 
     def _load_config(self):
@@ -291,7 +291,7 @@ class MainWindow(QWidget):
             self._pipeline.trans_enabled = self.trans_check.isChecked()
             self._pipeline.overlay.show_boxes = self.boxes_check.isChecked()
 
-            self.start_btn.setText("Stop Translate")
+            self.start_btn.setText("停止翻译")
             self.start_btn.setStyleSheet("""
                 QPushButton#startBtn {
                     background: #c22; color: #fff; border-color: #e44;
@@ -299,18 +299,18 @@ class MainWindow(QWidget):
                 }
                 QPushButton#startBtn:hover { background: #e44; }
             """)
-            self.status_label.setText("- Running")
+            self.status_label.setText("● 运行中")
             self.status_label.setStyleSheet("color: #0c8; font-size: 12px; background: transparent;")
             self._fps_timer.start(500)
             self.region_btn.setEnabled(False)
         else:
-            self.status_label.setText("- Start Failed")
+            self.status_label.setText("● 启动失败")
             self.status_label.setStyleSheet("color: #e44; font-size: 12px; background: transparent;")
 
     def _stop_all(self):
         if self._pipeline:
             self._pipeline.stop()
-        self.start_btn.setText("Start Translate")
+        self.start_btn.setText("开始翻译")
         self.start_btn.setStyleSheet("""
             QPushButton#startBtn {
                 background: #0a6; color: #fff; border-color: #0c8;
@@ -318,7 +318,7 @@ class MainWindow(QWidget):
             }
             QPushButton#startBtn:hover { background: #0c8; }
         """)
-        self.status_label.setText("- Ready")
+        self.status_label.setText("● 就绪")
         self.status_label.setStyleSheet("color: #888; font-size: 12px; background: transparent;")
         self._fps_timer.stop()
         self.region_btn.setEnabled(True)
@@ -345,10 +345,10 @@ class MainWindow(QWidget):
         self._settings_visible = not self._settings_visible
         self._settings_area.setVisible(self._settings_visible)
         if self._settings_visible:
-            self.settings_btn.setText("Hide Settings")
+            self.settings_btn.setText("隐藏设置")
             self.setFixedSize(380, 580)
         else:
-            self.settings_btn.setText("Settings")
+            self.settings_btn.setText("设  置")
             self.setFixedSize(380, 260)
 
     def _on_mask_toggle(self, checked):
@@ -369,20 +369,20 @@ class MainWindow(QWidget):
 
     def _init_pipeline(self):
         from detection.detection_pipeline import DetectionPipeline
-        self.status_label.setText("- Loading model...")
+        self.status_label.setText("● 加载模型...")
         self.status_label.setStyleSheet("color: #fa0; font-size: 12px; background: transparent;")
         self.start_btn.setEnabled(False)
         try:
             self._pipeline = DetectionPipeline(self.config_manager, target_fps=15)
             if self._pipeline.detector.is_loaded:
-                self.status_label.setText("- Ready")
+                self.status_label.setText("● 就绪")
                 self.status_label.setStyleSheet("color: #888; font-size: 12px; background: transparent;")
             else:
-                self.status_label.setText("- Model load failed")
+                self.status_label.setText("● 模型加载失败")
                 self._pipeline = None
         except Exception as e:
             logger.error(f"Pipeline init failed: {e}")
-            self.status_label.setText("- Error")
+            self.status_label.setText("● 错误")
             self._pipeline = None
         self.start_btn.setEnabled(True)
 
@@ -401,3 +401,4 @@ class MainWindow(QWidget):
         self._fps_timer.stop()
         self._overlay.close()
         super().closeEvent(event)
+
