@@ -1,7 +1,7 @@
 ﻿# -*- coding: utf-8 -*-
 """
 NexaTrans - Main Window v1.0
-Chinese UI. Settings persistence. API test. Red border toggle.
+System tray: minimize to tray, background translation, tray controls.
 """
 
 import os
@@ -9,9 +9,10 @@ import logging
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QGroupBox, QFormLayout, QCheckBox, QSlider,
-    QLineEdit, QFrame, QMessageBox, QApplication,
+    QLineEdit, QFrame, QMessageBox, QApplication, QSystemTrayIcon, QMenu,
 )
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QAction
 
 from config.config_manager import ConfigManager
 from ui.selector_window import SelectorWindow
@@ -54,6 +55,22 @@ def _write_env_key(key: str):
         pass
 
 
+def _make_tray_icon():
+    """Generate a simple N icon for tray."""
+    pix = QPixmap(32, 32)
+    pix.fill(Qt.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setBrush(QColor(0, 170, 255))
+    p.setPen(Qt.NoPen)
+    p.drawRoundedRect(2, 2, 28, 28, 8, 8)
+    p.setPen(QColor(255, 255, 255))
+    f = p.font(); f.setPixelSize(18); f.setBold(True); p.setFont(f)
+    p.drawText(pix.rect(), Qt.AlignCenter, "N")
+    p.end()
+    return QIcon(pix)
+
+
 class MainWindow(QWidget):
 
     def __init__(self, config_manager: ConfigManager):
@@ -65,10 +82,72 @@ class MainWindow(QWidget):
         self._fps_timer = QTimer()
         self._fps_timer.timeout.connect(self._update_status)
         self._settings_visible = False
+        self._quitting = False
         self._setup_ui()
+        self._setup_tray()
         self._load_config()
         self._load_region()
         logger.info("MainWindow v1.0 ready")
+
+    # ═══════════════ System Tray ═══════════════
+
+    def _setup_tray(self):
+        self._tray = QSystemTrayIcon(self)
+        self._tray.setIcon(_make_tray_icon())
+        self._tray.setToolTip("NexaTrans")
+
+        menu = QMenu()
+
+        self._tray_status = QAction("● 就绪")
+        self._tray_status.setEnabled(False)
+        menu.addAction(self._tray_status)
+        menu.addSeparator()
+
+        show_action = QAction("打开主界面")
+        show_action.triggered.connect(self._show_from_tray)
+        menu.addAction(show_action)
+
+        self._tray_toggle = QAction("开始翻译")
+        self._tray_toggle.triggered.connect(self._on_start)
+        menu.addAction(self._tray_toggle)
+        menu.addSeparator()
+
+        quit_action = QAction("退出程序")
+        quit_action.triggered.connect(self._quit_app)
+        menu.addAction(quit_action)
+
+        self._tray.setContextMenu(menu)
+        self._tray.activated.connect(self._on_tray_activated)
+        self._tray.show()
+
+    def _on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.DoubleClick:
+            self._show_from_tray()
+
+    def _show_from_tray(self):
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _update_tray_menu(self):
+        if self._pipeline and self._pipeline.is_running:
+            boxes = self._pipeline.overlay._boxes if hasattr(self._pipeline.overlay, "_boxes") else []
+            static = self._pipeline.is_static if hasattr(self._pipeline, "is_static") else True
+            self._tray_status.setText(
+                f"● 运行中 | {self._pipeline.fps:.0f}FPS | {len(boxes)}框 | {'静态' if static else '动态'}")
+            self._tray_toggle.setText("停止翻译")
+        else:
+            self._tray_status.setText("● 就绪")
+            self._tray_toggle.setText("开始翻译")
+
+    def _quit_app(self):
+        self._quitting = True
+        if self._pipeline:
+            self._pipeline.cleanup()
+        self._fps_timer.stop()
+        self._overlay.close()
+        self._tray.hide()
+        QApplication.instance().quit()
 
     # ═══════════════ UI Setup ═══════════════
 
@@ -119,7 +198,6 @@ class MainWindow(QWidget):
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(8)
 
-        # Title
         title = QLabel("NexaTrans")
         title.setAlignment(Qt.AlignCenter)
         f = title.font(); f.setPointSize(22); f.setBold(True); title.setFont(f)
@@ -135,14 +213,12 @@ class MainWindow(QWidget):
         sep.setStyleSheet("color: #333; background: transparent;")
         layout.addWidget(sep)
 
-        # Start button
         self.start_btn = QPushButton("开始翻译")
         self.start_btn.setObjectName("startBtn")
         self.start_btn.setCursor(Qt.PointingHandCursor)
         self.start_btn.clicked.connect(self._on_start)
         layout.addWidget(self.start_btn)
 
-        # Region + Settings row
         btn_row = QHBoxLayout()
         self.region_btn = QPushButton("框选区域")
         self.region_btn.setCursor(Qt.PointingHandCursor)
@@ -155,13 +231,11 @@ class MainWindow(QWidget):
         btn_row.addWidget(self.settings_btn)
         layout.addLayout(btn_row)
 
-        # Region info
         self.region_info = QLabel("区域: 未选择")
         self.region_info.setAlignment(Qt.AlignCenter)
         self.region_info.setStyleSheet("color: #888; font-size: 11px; background: transparent;")
         layout.addWidget(self.region_info)
 
-        # Status
         self.status_label = QLabel("● 就绪")
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setStyleSheet("color: #888; font-size: 12px; background: transparent;")
@@ -174,7 +248,6 @@ class MainWindow(QWidget):
         sl.setContentsMargins(0, 4, 0, 0)
         sl.setSpacing(6)
 
-        # API Key
         ag = QGroupBox("DeepSeek API")
         al = QVBoxLayout()
         self.api_key_input = QLineEdit()
@@ -190,11 +263,9 @@ class MainWindow(QWidget):
         self.test_btn.setCursor(Qt.PointingHandCursor)
         self.test_btn.clicked.connect(self._on_test_connection)
         al.addWidget(self.test_btn)
-
         ag.setLayout(al)
         sl.addWidget(ag)
 
-        # Overlay toggles
         tg = QGroupBox("覆盖层")
         tfl = QVBoxLayout()
         self.mask_check = QCheckBox("显示Mask遮罩")
@@ -215,33 +286,26 @@ class MainWindow(QWidget):
         tg.setLayout(tfl)
         sl.addWidget(tg)
 
-        # Filters
         fg = QGroupBox("过滤参数")
         ffl = QFormLayout()
-
         self._s_min_conf = self._make_s(10, 90, 50)
         self._l_min_conf = QLabel("0.50")
         ffl.addRow("最低置信度:", self._make_sr(self._s_min_conf, self._l_min_conf))
-
         self._s_min_asp = self._make_s(12, 30, 18)
         self._l_min_asp = QLabel("1.8")
         ffl.addRow("文字长宽比:", self._make_sr(self._s_min_asp, self._l_min_asp))
-
         self._s_max_icon = self._make_s(10, 18, 14)
         self._l_max_icon = QLabel("1.4")
         ffl.addRow("图标宽高比:", self._make_sr(self._s_max_icon, self._l_max_icon))
-
         self._s_min_area = self._make_s(1, 20, 5)
         self._l_min_area = QLabel("0.005")
         ffl.addRow("最小面积比:", self._make_sr(self._s_min_area, self._l_min_area))
-
         fg.setLayout(ffl)
         sl.addWidget(fg)
 
         self._settings_area.setLayout(sl)
         layout.addWidget(self._settings_area)
 
-        # Slider signals
         self._s_min_conf.valueChanged.connect(
             lambda v: self._on_f("min_confidence", v, self._l_min_conf, 100.0, "{:.2f}"))
         self._s_min_asp.valueChanged.connect(
@@ -263,7 +327,7 @@ class MainWindow(QWidget):
         r.addWidget(QLabel("低")); r.addWidget(s); r.addWidget(QLabel("高")); r.addWidget(l)
         w.setLayout(r); return w
 
-    # ═══════════════ Config Load/Save ═══════════════
+    # ═══════════════ Config ═══════════════
 
     def _load_config(self):
         tp = self.config_manager.get_text_processing_config()
@@ -271,14 +335,12 @@ class MainWindow(QWidget):
         self._s_min_asp.setValue(int(tp["min_text_aspect"] * 10))
         self._s_max_icon.setValue(int(tp["max_icon_aspect"] * 10))
         self._s_min_area.setValue(int(tp["min_area_ratio"] * 1000))
-        # Load checkbox states
         ui = self.config_manager.get_ui_config()
         self.mask_check.setChecked(ui.get("show_mask", False))
         self.boxes_check.setChecked(ui.get("show_boxes", True))
         self.redbox_check.setChecked(ui.get("show_redbox", False))
         self.ocr_check.setChecked(ui.get("show_ocr", True))
         self.trans_check.setChecked(ui.get("show_translation", True))
-        # Apply redbox on load if it was on
         if ui.get("show_redbox", False):
             r = self.config_manager.load_region()
             if r.get("width", 0) > 0:
@@ -288,7 +350,7 @@ class MainWindow(QWidget):
     def _load_region(self):
         r = self.config_manager.load_region()
         if r.get("width", 0) > 0:
-            self.region_info.setText(f"Region: ({r['x']},{r['y']}) {r['width']}x{r['height']}")
+            self.region_info.setText(f"区域: ({r['x']},{r['y']}) {r['width']}x{r['height']}")
             self._overlay.update_region(r)
 
     def _save_ui(self):
@@ -306,7 +368,7 @@ class MainWindow(QWidget):
         tp[key] = val
         self.config_manager.save_text_processing(tp)
 
-    # ═══════════════ API & Buttons ═══════════════
+    # ═══════════════ API ═══════════════
 
     def _on_api_key_change(self, text):
         _write_env_key(text.strip())
@@ -336,7 +398,7 @@ class MainWindow(QWidget):
                     "QPushButton#testBtn { background: #333; color: #e44; "
                     "border-color: #e44; padding: 6px 12px; font-size: 12px; }")
                 QMessageBox.critical(self, "连接失败",
-                    f"API Error: {result.get('error', 'Unknown')}")
+                    f"API错误: {result.get('error', 'Unknown')}")
         except Exception as e:
             self.test_btn.setText("连接失败")
             self.test_btn.setStyleSheet(
@@ -345,6 +407,8 @@ class MainWindow(QWidget):
             QMessageBox.critical(self, "连接失败", str(e))
         finally:
             self.test_btn.setEnabled(True)
+
+    # ═══════════════ Start / Stop ═══════════════
 
     def _on_start(self):
         if self._pipeline and self._pipeline.is_running:
@@ -375,6 +439,7 @@ class MainWindow(QWidget):
             self.status_label.setStyleSheet("color: #0c8; font-size: 12px; background: transparent;")
             self._fps_timer.start(500)
             self.region_btn.setEnabled(False)
+            self._update_tray_menu()
         else:
             self.status_label.setText("● 启动失败")
             self.status_label.setStyleSheet("color: #e44; font-size: 12px; background: transparent;")
@@ -394,6 +459,9 @@ class MainWindow(QWidget):
         self.status_label.setStyleSheet("color: #888; font-size: 12px; background: transparent;")
         self._fps_timer.stop()
         self.region_btn.setEnabled(True)
+        self._update_tray_menu()
+
+    # ═══════════════ Region ═══════════════
 
     def _on_select_region(self):
         if self._overlay.isVisible(): self._overlay.hide()
@@ -405,7 +473,7 @@ class MainWindow(QWidget):
     def _on_region_done(self, region):
         self._selector = None
         self.config_manager.save_region(region)
-        self.region_info.setText(f"Region: ({region['x']},{region['y']}) {region['width']}x{region['height']}")
+        self.region_info.setText(f"区域: ({region['x']},{region['y']}) {region['width']}x{region['height']}")
         self._overlay.update_region(region)
         if self.redbox_check.isChecked():
             self._overlay.set_test_visible(True)
@@ -425,7 +493,7 @@ class MainWindow(QWidget):
             self.settings_btn.setText("设  置")
             self.setFixedSize(380, 260)
 
-    # ═══════════════ Toggles (with save) ═══════════════
+    # ═══════════════ Toggles ═══════════════
 
     def _on_mask_toggle(self, checked):
         self._save_ui()
@@ -482,12 +550,16 @@ class MainWindow(QWidget):
         boxes = self._pipeline.overlay._boxes if hasattr(self._pipeline.overlay, "_boxes") else []
         static = self._pipeline.is_static if hasattr(self._pipeline, "is_static") else True
         self.status_label.setText(
-            f"- Running | {self._pipeline.fps:.0f} FPS | "
-            f"{len(boxes)} boxes | {'Static' if static else 'Dynamic'}")
+            f"● 运行中 | {self._pipeline.fps:.0f} FPS | "
+            f"{len(boxes)} 框 | {'静态' if static else '动态'}")
+        self._update_tray_menu()
+
+    # ═══════════════ Close → Tray ═══════════════
 
     def closeEvent(self, event):
-        if self._pipeline:
-            self._pipeline.cleanup()
-        self._fps_timer.stop()
-        self._overlay.close()
-        super().closeEvent(event)
+        if self._quitting:
+            super().closeEvent(event)
+        else:
+            self.hide()
+            self._tray.showMessage("NexaTrans", "程序已最小化到托盘，双击托盘图标可重新打开", QSystemTrayIcon.Information, 2000)
+            event.ignore()
