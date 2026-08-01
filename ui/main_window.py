@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QFrame, QMessageBox, QApplication, QSystemTrayIcon, QMenu,
     QComboBox,
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QAbstractNativeEventFilter
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QAction, QKeySequence
 
 from config.config_manager import ConfigManager
@@ -102,6 +102,24 @@ def _make_tray_icon():
     return QIcon(pix)
 
 
+class HotkeyFilter(QAbstractNativeEventFilter):
+    def __init__(self, callback):
+        super().__init__()
+        self._callback = callback
+
+    def nativeEventFilter(self, eventType, message):
+        if eventType == "windows_generic_MSG":
+            try:
+                ptr = ctypes.c_void_p(int(message))
+                msg = ctypes.cast(ptr, ctypes.POINTER(_WinMSG)).contents
+                if msg.message == WM_HOTKEY:
+                    self._callback()
+                    return True, 0
+            except Exception:
+                pass
+        return False, 0
+
+
 class MainWindow(QWidget):
 
     def __init__(self, config_manager: ConfigManager):
@@ -124,23 +142,12 @@ class MainWindow(QWidget):
         self._setup_tray()
         self._load_config()
         self._load_region()
+        self._hotkey_filter = HotkeyFilter(self._on_once_translate)
+        app = QApplication.instance()
+        if app:
+            app.installNativeEventFilter(self._hotkey_filter)
         QTimer.singleShot(500, self._register_hotkey)
         logger.info("MainWindow v1.2 ready")
-
-    # ---- native event for global hotkey ----
-    def nativeEvent(self, eventType, message):
-        if eventType == "windows_generic_MSG":
-            try:
-                ptr = ctypes.c_void_p(int(message))
-                msg = ctypes.cast(ptr, ctypes.POINTER(_WinMSG)).contents
-                if msg.message == WM_HOTKEY:
-                    if msg.wParam == self._hotkey_id:
-                        logger.info("Global hotkey triggered")
-                        self._on_once_translate()
-                        return True, 0
-            except Exception as e:
-                logger.debug(f"nativeEvent error (non-critical): {e}")
-        return super().nativeEvent(eventType, message)
 
     def _setup_tray(self):
         self._tray = QSystemTrayIcon(self)
@@ -242,7 +249,7 @@ class MainWindow(QWidget):
         return 0
 
     def _setup_ui(self):
-        self.setWindowTitle("NexaTrans v1.2"); self.setFixedSize(420, 310)
+        self.setWindowTitle("NexaTrans v1.2"); self.setFixedSize(420, 380)
         self.setStyleSheet("""
             QWidget { background: #1a1a2e; color: #eee; font-size: 13px; }
             QPushButton { background: #16213e; color: #0af; border: 1px solid #0af; border-radius: 6px; padding: 10px 20px; font-size: 14px; font-weight: bold; }
@@ -619,7 +626,7 @@ class MainWindow(QWidget):
     def _on_toggle_settings(self):
         self._settings_visible = not self._settings_visible; self._settings_area.setVisible(self._settings_visible)
         self.settings_btn.setText("\u9690\u85cf\u8bbe\u7f6e" if self._settings_visible else "\u8bbe  \u7f6e")
-        self.setFixedSize(420, 800 if self._settings_visible else 310)
+        self.setFixedSize(420, 800 if self._settings_visible else 380)
 
     def _on_mask_toggle(self, c): self._save_ui(); (lambda: setattr(self._pipeline, "show_mask", c))() if self._pipeline else None
     def _on_boxes_toggle(self, c): self._save_ui(); (lambda: setattr(self._pipeline.overlay, "show_boxes", c))() if self._pipeline and self._pipeline.overlay else None
