@@ -2,7 +2,7 @@
 ; Builds a single self-contained installer (per-user, no admin required).
 
 #define MyAppName "NexaTrans"
-#define MyAppVersion "1.2.0"
+#define MyAppVersion "1.2.1"
 #define MyAppPublisher "NexaTrans"
 #define MyAppExeName "NexaTrans.exe"
 #define MyAppURL "https://github.com/lshan99q/NexaTrans"
@@ -20,7 +20,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=release\installer
-OutputBaseFilename=NexaTrans-Setup-1.2
+OutputBaseFilename=NexaTrans-Setup-1.2.1
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern

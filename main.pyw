@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 NexaTrans v1.0
 Application entry: logging, exceptions, initialization.

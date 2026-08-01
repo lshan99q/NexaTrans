@@ -13,6 +13,15 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import Qt, qInstallMessageHandler
 
 LOG_DIR = os.path.join((os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))), "logs")
+
+# Use bundled models when available (PyInstaller frozen or local models/ dir)
+_FROZEN = getattr(sys, "frozen", False)
+if _FROZEN:
+    _BUNDLED_MODELS = os.path.join(sys._MEIPASS, "models")
+else:
+    _BUNDLED_MODELS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+if os.path.isdir(os.path.join(_BUNDLED_MODELS, "official_models")):
+    os.environ["PADDLEX_HOME"] = _BUNDLED_MODELS
 LOG_FILE = os.path.join(LOG_DIR, "app.log")
 
 # Detect if running without console (e.g. .pyw or pythonw.exe)
