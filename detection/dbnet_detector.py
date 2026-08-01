@@ -6,6 +6,8 @@ Returns both boxes and confidence scores for filtering.
 """
 
 import logging
+import os
+import sys
 import numpy as np
 
 logger = logging.getLogger("NexaTrans.DBNetDetector")
@@ -25,6 +27,15 @@ class DBNetDetector:
         self._limit_side_len = limit_side_len
         self._predictor = None
         self._loaded = False
+        # Resolve bundled model path
+        if getattr(sys, "frozen", False):
+            bundled = os.path.join(sys._MEIPASS, "models", "official_models", "PP-OCRv6_medium_det_onnx")
+        else:
+            bundled = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models", "official_models", "PP-OCRv6_medium_det_onnx")
+        if os.path.isdir(bundled):
+            self._bundled_model = bundled
+        else:
+            self._bundled_model = None
         self._load_model()
 
     def _load_model(self):
@@ -35,9 +46,10 @@ class DBNetDetector:
             self._loaded = False
             return
         try:
-            self._predictor = create_predictor("PP-OCRv6_medium_det", engine="onnxruntime")
+            model = self._bundled_model or "PP-OCRv6_medium_det"
+            self._predictor = create_predictor(model, engine="onnxruntime")
             self._loaded = True
-            logger.info(f"DBNet++ detector loaded (limit={self._limit_side_len}px)")
+            logger.info(f"DBNet++ detector loaded (limit={self._limit_side_len}px, model={model})")
         except Exception as e:
             logger.error(f"Failed to load DBNet++ model: {e}", exc_info=True)
             self._loaded = False

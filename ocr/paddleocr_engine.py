@@ -5,6 +5,8 @@ Recognition only (no detection) - DBNet++ handles detection.
 """
 
 import logging
+import os
+import sys
 import numpy as np
 
 logger = logging.getLogger("NexaTrans.OCREngine")
@@ -23,16 +25,24 @@ class PaddleOCREngine:
         self._lang = lang
         self._predictor = None
         self._loaded = False
+        # Resolve bundled model path
+        if getattr(sys, "frozen", False):
+            bundled = os.path.join(sys._MEIPASS, "models", "official_models", "PP-OCRv5_mobile_rec_onnx")
+        else:
+            bundled = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models", "official_models", "PP-OCRv5_mobile_rec_onnx")
+        if os.path.isdir(bundled):
+            self._bundled_model = bundled
+        else:
+            self._bundled_model = None
         self._load_model()
 
     def _load_model(self):
         try:
             from paddlex import create_predictor
-            self._predictor = create_predictor(
-                "PP-OCRv5_mobile_rec", engine="onnxruntime"
-            )
+            model = self._bundled_model or "PP-OCRv5_mobile_rec"
+            self._predictor = create_predictor(model, engine="onnxruntime")
             self._loaded = True
-            logger.info("PP-OCRv5_mobile_rec loaded via PaddleX ONNX")
+            logger.info(f"PP-OCRv5_mobile_rec loaded via PaddleX ONNX (model={model})")
         except ImportError:
             logger.critical("PaddleX not installed. Run: pip install paddleocr")
             self._loaded = False
