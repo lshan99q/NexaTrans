@@ -1,0 +1,27 @@
+﻿__pycache__/
+*.pyc
+*.pyo
+logs/
+.env
+*.log
+config/local.json
+translation_cache.json
+
+# Models (downloaded at runtime)
+models/
+
+# Build / release artifacts
+release/build/
+release/dist/
+release/installer/
+*.spec
+
+# Test / temp files
+test_*.txt
+*_b64.txt
+1.txt
+out3.txt
+
+# IDE
+.vscode/
+.idea/

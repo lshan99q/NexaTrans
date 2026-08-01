@@ -1,0 +1,48 @@
+{
+    "region": {
+        "height": 189,
+        "width": 576,
+        "x": 487,
+        "y": 430
+    },
+    "overlay": {
+        "opacity": 0.5,
+        "border": true
+    },
+    "text_processing": {
+        "dilate_size": 5,
+        "blur_size": 3,
+        "merge_distance": 20,
+        "height_ratio": 0.6,
+        "crop_padding": 2,
+        "min_confidence": 0.5,
+        "min_text_aspect": 1.8,
+        "max_icon_aspect": 1.4,
+        "min_area_ratio": 0.005
+    },
+    "ocr": {
+        "enabled": false,
+        "engine": "PP-OCRv5",
+        "confidence": 0.7,
+        "cache": true,
+        "lang": "ch"
+    },
+    "translation": {
+        "enabled": false,
+        "provider": "deepseek",
+        "model": "deepseek-chat",
+        "target_language": "zh",
+        "max_workers": 3,
+        "cache": true
+    },
+    "ui": {
+        "show_mask": true,
+        "show_boxes": false,
+        "show_redbox": false,
+        "show_ocr": true,
+        "show_translation": true,
+        "fps_target": 14,
+        "once_hotkey_mod": "Ctrl",
+        "once_hotkey_key": "A"
+    }
+}
