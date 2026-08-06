@@ -1,4 +1,4 @@
-﻿__pycache__/
+__pycache__/
 *.pyc
 *.pyo
 logs/
@@ -11,9 +11,17 @@ translation_cache.json
 models/
 
 # Build / release artifacts
+build/
+dist/
 release/build/
 release/dist/
 release/installer/
+release/*.exe
+release/*.zip
+release/*.log
+release/.env
+release/config/
+release/NexaTrans/
 *.spec
 
 # Test / temp files

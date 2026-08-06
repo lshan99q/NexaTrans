@@ -42,14 +42,18 @@ class DBNetDetector:
         try:
             from paddlex import create_predictor
         except ImportError:
-            logger.critical("PaddleX not installed. Run: pip install paddleocr")
+            import traceback as _tb
+            logger.critical("PaddleX import failed. Full traceback:", exc_info=True)
+            logger.critical(_tb.format_exc())
             self._loaded = False
             return
         try:
-            model = self._bundled_model or "PP-OCRv6_medium_det"
-            self._predictor = create_predictor(model, engine="onnxruntime")
+            if self._bundled_model:
+                self._predictor = create_predictor("PP-OCRv6_medium_det", model_dir=self._bundled_model, engine="onnxruntime")
+            else:
+                self._predictor = create_predictor("PP-OCRv6_medium_det", engine="onnxruntime")
             self._loaded = True
-            logger.info(f"DBNet++ detector loaded (limit={self._limit_side_len}px, model={model})")
+            logger.info(f"DBNet++ detector loaded (limit={self._limit_side_len}px)")
         except Exception as e:
             logger.error(f"Failed to load DBNet++ model: {e}", exc_info=True)
             self._loaded = False

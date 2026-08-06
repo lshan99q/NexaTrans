@@ -138,6 +138,7 @@ class MainWindow(QWidget):
         self._once_display_timer = QTimer()
         self._once_display_timer.setSingleShot(True)
         self._once_display_timer.timeout.connect(self._clear_once_overlay)
+        self._pipeline_inited = False
         self._setup_ui()
         self._setup_tray()
         self._load_config()
@@ -640,6 +641,9 @@ class MainWindow(QWidget):
     def _on_trans_toggle(self, c): self._save_ui(); (lambda: setattr(self._pipeline, "trans_enabled", c))() if self._pipeline else None
 
     def _init_pipeline(self):
+        if self._pipeline_inited:
+            return
+        self._pipeline_inited = True
         from detection.detection_pipeline import DetectionPipeline
         self.status_label.setText("\u25cf \u52a0\u8f7d\u6a21\u578b..."); self.status_label.setStyleSheet("color: #fa0; font-size: 12px; background: transparent;")
         self.start_btn.setEnabled(False); self.once_btn.setEnabled(False)
@@ -647,9 +651,9 @@ class MainWindow(QWidget):
             self._pipeline = DetectionPipeline(self.config_manager, target_fps=self._s_fps.value())
             if self._pipeline.detector.is_loaded:
                 self.status_label.setText("\u25cf \u5c31\u7eea"); self.status_label.setStyleSheet("color: #888; font-size: 12px; background: transparent;")
-            else: self.status_label.setText("\u25cf \u6a21\u578b\u52a0\u8f7d\u5931\u8d25"); self._pipeline = None
+            else: self.status_label.setText("\u25cf \u6a21\u578b\u52a0\u8f7d\u5931\u8d25"); self._pipeline = None; self._pipeline_inited = False
         except Exception as e:
-            logger.error(f"Pipeline init failed: {e}"); self.status_label.setText("\u25cf \u9519\u8bef"); self._pipeline = None
+            logger.error(f"Pipeline init failed: {e}"); self.status_label.setText("\u25cf \u9519\u8bef"); self._pipeline = None; self._pipeline_inited = False
         self.start_btn.setEnabled(True); self.once_btn.setEnabled(True)
 
     def _update_status(self):

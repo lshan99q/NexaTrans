@@ -39,12 +39,16 @@ class PaddleOCREngine:
     def _load_model(self):
         try:
             from paddlex import create_predictor
-            model = self._bundled_model or "PP-OCRv5_mobile_rec"
-            self._predictor = create_predictor(model, engine="onnxruntime")
+            if self._bundled_model:
+                self._predictor = create_predictor("PP-OCRv5_mobile_rec", model_dir=self._bundled_model, engine="onnxruntime")
+            else:
+                self._predictor = create_predictor("PP-OCRv5_mobile_rec", engine="onnxruntime")
             self._loaded = True
-            logger.info(f"PP-OCRv5_mobile_rec loaded via PaddleX ONNX (model={model})")
+            logger.info(f"PP-OCRv5_mobile_rec loaded via PaddleX ONNX")
         except ImportError:
-            logger.critical("PaddleX not installed. Run: pip install paddleocr")
+            import traceback as _tb
+            logger.critical("PaddleX import failed (OCR). Full traceback:", exc_info=True)
+            logger.critical(_tb.format_exc())
             self._loaded = False
         except Exception as e:
             logger.error(f"Failed to load OCR model: {e}", exc_info=True)

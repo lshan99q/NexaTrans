@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-NexaTrans v1.2
+NexaTrans v1.2.1
 Application entry: logging, exceptions, initialization.
 """
 
@@ -55,7 +55,7 @@ def setup_logging():
         logger.addHandler(console_handler)
 
     logger.info("=" * 50)
-    logger.info("NexaTrans v1.2 Startup")
+    logger.info("NexaTrans v1.2.1 Startup")
     logger.info(f"Log: {LOG_FILE}")
     logger.info("=" * 50)
     return logger
@@ -115,7 +115,7 @@ def main():
 
         app = QApplication(sys.argv)
         app.setApplicationName("NexaTrans")
-        app.setApplicationVersion("1.2.0")
+        app.setApplicationVersion("1.2.1")
         app.setOrganizationName("NexaTrans")
 
         config_manager = ConfigManager()

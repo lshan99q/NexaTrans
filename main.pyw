@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-NexaTrans v1.0
+NexaTrans v1.2.1
 Application entry: logging, exceptions, initialization.
 """
 
@@ -12,7 +12,16 @@ import logging.handlers
 from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import Qt, qInstallMessageHandler
 
-LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+LOG_DIR = os.path.join((os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))), "logs")
+
+# Use bundled models when available (PyInstaller frozen or local models/ dir)
+_FROZEN = getattr(sys, "frozen", False)
+if _FROZEN:
+    _BUNDLED_MODELS = os.path.join(sys._MEIPASS, "models")
+else:
+    _BUNDLED_MODELS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+if os.path.isdir(os.path.join(_BUNDLED_MODELS, "official_models")):
+    os.environ["PADDLEX_HOME"] = _BUNDLED_MODELS
 LOG_FILE = os.path.join(LOG_DIR, "app.log")
 
 # Detect if running without console (e.g. .pyw or pythonw.exe)
@@ -46,7 +55,7 @@ def setup_logging():
         logger.addHandler(console_handler)
 
     logger.info("=" * 50)
-    logger.info("NexaTrans v1.0 Startup")
+    logger.info("NexaTrans v1.2.1 Startup")
     logger.info(f"Log: {LOG_FILE}")
     logger.info("=" * 50)
     return logger
@@ -93,7 +102,7 @@ sys.excepthook = global_exception_handler
 
 
 def ensure_directories():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = (os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__)))
     for d in ["config", "logs"]:
         os.makedirs(os.path.join(base_dir, d), exist_ok=True)
 
@@ -106,7 +115,7 @@ def main():
 
         app = QApplication(sys.argv)
         app.setApplicationName("NexaTrans")
-        app.setApplicationVersion("1.0.0")
+        app.setApplicationVersion("1.2.1")
         app.setOrganizationName("NexaTrans")
 
         config_manager = ConfigManager()
