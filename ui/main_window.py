@@ -102,7 +102,7 @@ HOTKEY_KEYS = [chr(i) for i in range(ord("A"), ord("Z") + 1)] + \
 WINDOW_W = 452
 HOME_H = 448
 SHADOW_PAD = 0
-APP_VERSION = "v1.2.1"
+APP_VERSION = "v1.3.0"
 
 # ---- optional DWM integration (rounded corners / dark caption) ----
 DWMWA_USE_IMMERSIVE_DARK_MODE = 20

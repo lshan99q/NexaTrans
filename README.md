@@ -1,4 +1,4 @@
-# NexaTrans v1.2
+# NexaTrans v1.3.0
 
 Real-time AI screen translation for games. Detects, recognizes, and translates on-screen text continuously or on-demand. Supports global hotkey for one-shot translation.
 
@@ -130,7 +130,11 @@ python main.pyw
 
 ## Changelog
 
-### Fix: "recognises text but never translates" (unreleased)
+### v1.3.0
+Windows 11 Fluent UI, plus fixes for UI freezes, an invisible window border and
+translation being silently skipped.
+
+#### Fixed: "recognises text but never translates"
 - **Root cause:** `DetectionPipeline._init_translation()` cached the DeepSeek
   client forever (`if self._trans_client and self._trans_manager: return`).
   If the pipeline built its client before `DEEPSEEK_API_KEY` existed - the
@@ -151,7 +155,7 @@ python main.pyw
   DeepSeek client against a synthetic image to prove the
   filter -> crop -> OCR -> translate path end to end.
 
-### Fixes: responsiveness (unreleased)
+#### Fixed: invisible border and UI freezes
 - **Removed the invisible border around the window.** The panel used to be
   drawn inside a 16px transparent padding that hosted a drop shadow; that band
   was part of the window, so it swallowed clicks on whatever was behind it and
@@ -179,7 +183,7 @@ python main.pyw
   periodic tick, status poll 500 -> 800 ms).
 - Added `tools/ui_perf.py` to measure GUI stalls with the real models.
 
-### UI: Windows 11 Fluent (unreleased)
+#### UI: Windows 11 Fluent
 - Replaced the neon "Aurora" skin with the Windows 11 / WinUI 3 design system
 - Light **and** dark themes; follows the Windows personalisation setting by
   default, with a theme selector in Settings
