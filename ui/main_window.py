@@ -933,6 +933,9 @@ class MainWindow(QWidget):
             result = client.translate("test")
             if result.get("translation") and not result.get("error"):
                 self.test_btn.setText("\u8fde\u63a5\u6210\u529f")
+                # let a freshly verified key take effect without a restart
+                if self._pipeline is not None:
+                    self._pipeline.refresh_translation()
                 self._notify("\u2713  DeepSeek API \u8fde\u63a5\u6210\u529f",
                              "success")
             else:
@@ -993,7 +996,13 @@ class MainWindow(QWidget):
             self._fps_timer.start(800)
             self.region_btn.setEnabled(False)
             self._update_tray_menu()
-            self._notify("\u5df2\u5f00\u59cb\u5b9e\u65f6\u7ffb\u8bd1", "success")
+            reason = self._translation_block_reason()
+            if reason:
+                self._notify(
+                    f"\u5df2\u5f00\u59cb\u8bc6\u522b\uff0c\u4f46{reason}\uff0c"
+                    f"\u4e0d\u4f1a\u7ffb\u8bd1", "warn", 4600)
+            else:
+                self._notify("\u5df2\u5f00\u59cb\u5b9e\u65f6\u7ffb\u8bd1", "success")
 
     def _stop_all(self):
         if self._pipeline:
@@ -1086,11 +1095,21 @@ class MainWindow(QWidget):
                 self._pipeline._overlay.set_ocr_results(ocr)
                 self._pipeline._overlay.show_ocr = True
                 self._pipeline._overlay.show_translation = False
-                self._set_once_done(
-                    f"OCR \u5b8c\u6210 \u00b7 {len(ocr)} \u6761", "ok")
-                self._notify(
-                    f"\u8bc6\u522b\u5b8c\u6210\uff0c{len(ocr)} \u6761\u6587\u5b57",
-                    "success")
+                reason = self._translation_block_reason()
+                if reason:
+                    # OCR worked but nothing could be translated - say why
+                    # instead of reporting a plain "OCR 完成"
+                    self._set_once_done(
+                        f"OCR \u00b7 {len(ocr)} \u6761 \u00b7 {reason}", "busy")
+                    self._notify(
+                        f"\u5df2\u8bc6\u522b {len(ocr)} \u6761\u6587\u5b57\uff0c"
+                        f"\u4f46{reason}\uff0c\u672a\u7ffb\u8bd1", "warn", 4600)
+                else:
+                    self._set_once_done(
+                        f"OCR \u5b8c\u6210 \u00b7 {len(ocr)} \u6761", "ok")
+                    self._notify(
+                        f"\u8bc6\u522b\u5b8c\u6210\uff0c{len(ocr)} \u6761\u6587\u5b57",
+                        "success")
             elif boxes:
                 self._pipeline._overlay.show_ocr = False
                 self._pipeline._overlay.show_translation = False
@@ -1121,6 +1140,19 @@ class MainWindow(QWidget):
             self._pipeline._overlay.set_trans_results([])
             self._pipeline._overlay.hide_overlay()
         self._update_tray_menu()
+
+    def _translation_block_reason(self) -> str:
+        """
+        Why OCR results would not be translated (empty string = all good).
+
+        Translation used to be skipped silently - the user only saw
+        "OCR 完成" with a translation count of 0 and no clue why.
+        """
+        if not self.trans_check.isChecked():
+            return "\u672a\u542f\u7528 AI \u7ffb\u8bd1"
+        if self._pipeline is not None and not self._pipeline.translation_ready:
+            return "\u672a\u914d\u7f6e DeepSeek \u5bc6\u94a5"
+        return ""
 
     def _set_once_done(self, text: str, state: str) -> None:
         self.status_badge.set_state(text, state)

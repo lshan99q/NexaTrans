@@ -130,6 +130,27 @@ python main.pyw
 
 ## Changelog
 
+### Fix: "recognises text but never translates" (unreleased)
+- **Root cause:** `DetectionPipeline._init_translation()` cached the DeepSeek
+  client forever (`if self._trans_client and self._trans_manager: return`).
+  If the pipeline built its client before `DEEPSEEK_API_KEY` existed - the
+  normal case when the key is entered in Settings on first run - that keyless
+  client was reused for the rest of the session.  `capture_once()` then hit its
+  `self._trans_client.is_configured` guard, skipped translation and returned
+  zero results, so the UI showed "OCR 完成" with a translation count of 0 and
+  no explanation.
+- The guard now only short-circuits for a *configured* client, and the
+  `trans_enabled` setter re-checks the key every time translation is turned on,
+  so a key saved later is picked up without restarting the app.
+- Added `DetectionPipeline.translation_ready` and `refresh_translation()`;
+  a successful "检查连通性" now refreshes the pipeline immediately.
+- **The UI now says why** translation was skipped: the status shows
+  `OCR · 13 条 · 未配置 DeepSeek 密钥` (or `未启用 AI 翻译`) and an InfoBar
+  explains it, instead of a bare "OCR 完成".
+- Added `tools/pipeline_check.py`: runs the real OCR engine and the real
+  DeepSeek client against a synthetic image to prove the
+  filter -> crop -> OCR -> translate path end to end.
+
 ### Fixes: responsiveness (unreleased)
 - **Removed the invisible border around the window.** The panel used to be
   drawn inside a 16px transparent padding that hosted a drop shadow; that band

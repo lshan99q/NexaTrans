@@ -275,6 +275,37 @@ def main() -> int:
               window.start_btn.text() == "\u5f00\u59cb\u7ffb\u8bd1",
               window.start_btn.text())
 
+        print("\ntranslation client must pick up a key saved later")
+        import translation.deepseek_client as dsc
+        from detection.detection_pipeline import DetectionPipeline
+
+        class TinyDetector:
+            is_loaded = True
+
+            def detect(self, img):
+                return {"boxes": [], "scores": []}
+
+        real_load_env = dsc._load_env
+        probe = None
+        try:
+            # first run: no .env / no key yet
+            dsc._load_env = lambda: {}
+            probe = DetectionPipeline(config, detector=TinyDetector())
+            probe.trans_enabled = True
+            check("client is unconfigured when no key exists",
+                  probe._trans_client is not None
+                  and not probe._trans_client.is_configured)
+
+            # the user now saves their key in Settings, then presses start again
+            dsc._load_env = real_load_env
+            probe.trans_enabled = True
+            check("re-enabling translation picks up the newly saved key",
+                  probe._trans_client.is_configured)
+        finally:
+            dsc._load_env = real_load_env
+            if probe is not None:
+                probe.cleanup()
+
         print("\nregion selector")
         from ui.selector_window import SelectorWindow
         selector = SelectorWindow({"opacity": 0.5, "border": True})

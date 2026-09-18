@@ -154,18 +154,34 @@ class DetectionPipeline(QObject):
 
     @trans_enabled.setter
     def trans_enabled(self, v: bool):
-        if v == self._trans_enabled:
-            return
-        logger.info(f"Translation: {self._trans_enabled} -> {v}")
+        changed = (v != self._trans_enabled)
+        if changed:
+            logger.info(f"Translation: {self._trans_enabled} -> {v}")
         self._trans_enabled = v
         self._overlay.show_translation = v
         if v:
+            # idempotent (and cheap once configured): re-check the API key so
+            # one saved later in Settings is picked up without a restart
             self._init_translation()
-            self._prev_frame = None
+            if changed:
+                self._prev_frame = None
         else:
             self._trans_results = []
             self._overlay.set_trans_results([])
         self._update_overlay_display()
+
+    @property
+    def translation_ready(self) -> bool:
+        """True when OCR results can actually be translated."""
+        return bool(self._trans_manager and self._trans_client
+                    and self._trans_client.is_configured)
+
+    def refresh_translation(self):
+        """Drop the cached client so the next init re-reads the API key."""
+        self._trans_client = None
+        self._trans_manager = None
+        if self._trans_enabled:
+            self._init_translation()
 
     def _update_overlay_display(self):
         """Refresh overlay with current data."""
@@ -191,7 +207,11 @@ class DetectionPipeline(QObject):
             logger.error(f"OCR init failed: {e}", exc_info=True)
 
     def _init_translation(self):
-        if self._trans_client and self._trans_manager:
+        # Only skip when a *configured* client already exists.  A client built
+        # before the API key was saved would otherwise be cached forever, and
+        # translation would silently never run ("只识别不翻译").
+        if (self._trans_client and self._trans_manager
+                and self._trans_client.is_configured):
             return
         try:
             from translation.deepseek_client import DeepSeekClient
