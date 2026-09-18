@@ -20,58 +20,62 @@ Screen → DBNet++ → Mask → PP-OCRv5 → DeepSeek → Overlay
 - All settings persisted across sessions
 - Configurable filters and FPS slider (1-30)
 - Translation count statistics
-- Animated dark UI (v2.0 "Aurora") - see [UI](#ui-v20-aurora) below
+- Windows 11 Fluent UI with light / dark themes - see [UI](#ui-windows-11-fluent) below
 
-## UI (v2.0 "Aurora")
+## UI (Windows 11 Fluent)
 
-The interface was rebuilt around a small design system and an animated
-component kit. All v1.2 behaviour (tray, hotkeys, pipeline, config file
-format) is unchanged - only the presentation layer is new.
+The interface follows the Windows 11 design system (WinUI 3): Segoe UI
+Variable typography, 4/8px corner radii, the Fluent control fills and strokes,
+Mica-style window material and a real Win11 caption bar.
 
-**Look**: frameless translucent window with a custom title bar, rounded glass
-cards, a cyan/indigo gradient accent and a soft aurora glow in the corner.
+**Theme** — follows the Windows personalisation setting by default
+(`AppsUseLightTheme`) and can be pinned to light or dark in Settings.  The
+accent colour is read from the registry
+(`HKCU\Software\Microsoft\Windows\DWM\AccentColor`), so buttons, switches,
+sliders and selection frames use *your* Windows accent, with the WinUI
+light/dark accent variants derived automatically.
 
-**Animation**
+**Controls** reproduce the WinUI specs:
 
-| Element | Motion |
-|---------|--------|
-| Primary button | gradient hover, animated glow, press feedback, click ripple, busy spinner |
-| Settings transition | pages slide horizontally; the window height eases between views |
-| Settings cards | staggered fade-in on first open |
-| Toggle switches | eased knob travel with a gradient track |
-| Sliders | gradient fill, handle grows on hover/drag |
-| Metric chips | values count up to the new number |
-| Status pill | pulsing dot while detecting |
-| Region selector | animated marching-ants frame, corner brackets, live size badge, crosshair + spotlight |
-| Region overlay | breathing glow, marching ants, size chip |
-| Notifications | toasts slide up from the bottom instead of modal popups |
+| Control | Behaviour |
+|---------|-----------|
+| Button | control fill + darker bottom edge, crossfaded hover, dimmed label while pressed, two-tone focus rectangle |
+| Accent button | accent fill with black/white label chosen by luminance |
+| Toggle switch | 40x20, outlined grey knob when off, accent fill when on |
+| Slider | 4px rail, accent fill, **no handle at rest**, 20px circle on hover, accent dot while dragging |
+| Caption bar | 32px, vector-drawn minimise/close glyphs, `#C42B1C` close hover |
+| InfoBar | slides down below the caption bar instead of a modal popup |
+| Page transition | WinUI slide-up + fade (250 ms) with an eased window resize |
 
 **Layout**
 
 ```
 ui/
-├── theme.py            design tokens, global QSS, cached soft shadows
-├── main_window.py      frameless shell, hero panel, settings page, tray
-├── selector_window.py  full-screen region picker
-├── region_overlay.py   resident region frame
-└── widgets/            reusable animated components
+├── theme.py            Fluent tokens (light + dark), system theme/accent
+│                       detection, global QSS, cached soft shadows
+├── main_window.py      frameless Mica shell, hero card, settings cards, tray
+├── selector_window.py  Snipping-Tool style region picker
+├── region_overlay.py   resident accent region frame
+└── widgets/            reusable Fluent components
     ├── anim.py         named-slot value animations
-    ├── buttons.py      GlowButton, IconButton
-    ├── controls.py     ToggleSwitch, NeonSlider
-    ├── containers.py   Card, LogoMark, TitleBar, SlideStack
-    └── feedback.py     StatusPill, StatChip, Toast, Spinner, form rows
+    ├── buttons.py      FluentButton, IconButton, CaptionButton
+    ├── controls.py     ToggleSwitch, FluentSlider
+    ├── containers.py   Card, SettingsRow, Divider, TitleBar, FluentStack
+    └── feedback.py     InfoBar, ProgressRing, StatusBadge, MetricTile
 ```
 
-`ToggleSwitch` and `NeonSlider` subclass `QCheckBox` / `QSlider`, so they keep
+`ToggleSwitch` and `FluentSlider` subclass `QCheckBox` / `QSlider`, so they keep
 the standard Qt API (`isChecked`, `setChecked`, `toggled`, `value`,
-`valueChanged`) and drop into existing code unchanged.
+`valueChanged`) and drop into existing code unchanged.  Text styling is driven
+by style-sheet *roles* (`label.setProperty("role", "caption")`) rather than
+inline style sheets, so switching theme restyles everything at once.
 
 ### Previewing the UI headlessly
 
 Both tools render with the Qt `offscreen` platform, so no desktop is needed:
 
 ```bash
-python tools/ui_preview.py   # renders every state to _ui_preview/*.png
+python tools/ui_preview.py   # every state, light + dark -> _ui_preview/*.png
 python tools/ui_smoke.py     # headless checks for the UI wiring
 ```
 
@@ -102,14 +106,26 @@ python main.pyw
 
 ## Changelog
 
-### v2.0 UI "Aurora" (unreleased)
-- New design system (`ui/theme.py`) + reusable animated widget kit (`ui/widgets/`)
-- Frameless translucent window with custom title bar, glass cards and gradient accents
-- Animated page transition between the home and settings views, with an eased window resize
-- Staggered card reveal, animated toggles/sliders, counting metric chips, pulsing status dot
-- Toast notifications replace several modal dialogs
-- Modernized region selector (marching ants, corner brackets, size badge) and region overlay
+### UI: Windows 11 Fluent (unreleased)
+- Replaced the neon "Aurora" skin with the Windows 11 / WinUI 3 design system
+- Light **and** dark themes; follows the Windows personalisation setting by
+  default, with a theme selector in Settings
+- Accent colour read from the Windows registry, with automatic light/dark
+  accent variants (accent buttons, switches, sliders, selection frames)
+- Fluent control kit: FluentButton, CaptionButton, ToggleSwitch, FluentSlider,
+  Card / SettingsRow, InfoBar, ProgressRing, StatusBadge, MetricTile
+- Win11 caption bar with vector-drawn minimise/close glyphs and the
+  `#C42B1C` close-button hover
+- WinUI page transition (slide-up + fade) and InfoBar notifications
+- Region selector restyled after the Windows 11 Snipping Tool (accent frame,
+  resize handles, size chip); region overlay restyled to an accent frame
+- Settings reorganised into Win11 settings cards with dividers
+- Text styling now uses style-sheet roles instead of inline style sheets, so a
+  theme switch restyles the whole app at once
 - Fixed: one-shot display duration is now persisted (it was read but never saved)
+- Fixed: selector emitted float geometry into `QWidget.setGeometry`
+- Added `tools/ui_preview.py` (offscreen render, light + dark) and
+  `tools/ui_smoke.py` (36 headless wiring checks)
 
 ### v1.2
 - One-shot translation: button, tray menu, global hotkey (Ctrl+Shift+T)

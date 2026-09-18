@@ -1,113 +1,94 @@
 # -*- coding: utf-8 -*-
 """
-NexaTrans - layout containers: cards, logo, title bar and the animated
-page stack used to slide between the "home" and "settings" views.
+NexaTrans - Fluent (Windows 11) containers.
+
+* ``Card``         - Win11 "settings card": layer fill, 1px stroke, 8px corners
+* ``LogoMark``     - flat accent app tile
+* ``TitleBar``     - Win11 caption bar (icon + title + caption buttons)
+* ``FluentStack``  - WinUI page transition (slide up + fade, 250 ms)
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import (
-    QEasingCurve, QPoint, QRectF, Qt, Signal,
-)
+from PySide6.QtCore import QEasingCurve, QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import (
-    QColor, QFont, QLinearGradient, QPainter, QPen,
+    QColor, QFont, QPainter, QPainterPath, QPen, QRegion,
 )
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget,
+    QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
 )
 
 from ui.theme import (
-    Motion, Palette, Radius, Space, mix, qc, radial_highlight, rounded_path,
-    ui_font,
+    Motion, Radius, Space, mix, qc, rounded_path, theme, ui_font,
 )
-from ui.widgets.anim import animate
-from ui.widgets.buttons import IconButton
+from ui.widgets.anim import animate, stop_animation
+from ui.widgets.buttons import CaptionButton
+
+
+# --------------------------------------------------------------------------
+# Logo
+# --------------------------------------------------------------------------
 
 
 def paint_logo_mark(painter: QPainter, rect: QRectF) -> None:
-    """Paint the Aurora gradient mark into ``rect`` (shared by widget + tray)."""
+    """Flat accent app tile with a contrasting 'N' (shared with the tray)."""
+    t = theme()
     painter.setRenderHint(QPainter.Antialiasing, True)
-    path = rounded_path(rect, rect.width() * 0.28)
-
-    grad = QLinearGradient(rect.topLeft(), rect.bottomRight())
-    grad.setColorAt(0.0, qc(Palette.CYAN))
-    grad.setColorAt(0.55, qc(Palette.SKY))
-    grad.setColorAt(1.0, qc(Palette.INDIGO))
+    path = rounded_path(rect, rect.width() * 0.22)
     painter.setPen(Qt.NoPen)
-    painter.setBrush(grad)
+    painter.setBrush(qc(t.accent))
     painter.drawPath(path)
 
-    sheen = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-    sheen.setColorAt(0.0, QColor(255, 255, 255, 70))
-    sheen.setColorAt(1.0, QColor(255, 255, 255, 0))
-    painter.setBrush(sheen)
-    painter.drawPath(path)
-
-    f = ui_font(int(rect.width() * 0.62), QFont.Black)
-    f.setItalic(True)
+    f = ui_font(int(rect.width() * 0.66), QFont.Bold, display=True)
     painter.setFont(f)
-    painter.setPen(qc("#04121C"))
+    painter.setPen(qc(t.text_on_accent))
     painter.drawText(rect, Qt.AlignCenter, "N")
 
 
 class LogoMark(QWidget):
-    """The gradient app mark."""
-
-    def __init__(self, size: int = 26, parent=None):
+    def __init__(self, size: int = 20, parent=None):
         super().__init__(parent)
-        self._size = size
         self.setFixedSize(size, size)
-
-    def paint(self, painter: QPainter, rect: QRectF) -> None:
-        paint_logo_mark(painter, rect)
 
     def paintEvent(self, event):
         painter = QPainter(self)
         paint_logo_mark(painter, QRectF(self.rect()))
 
 
+# --------------------------------------------------------------------------
+# Card
+# --------------------------------------------------------------------------
+
+
 class Card(QFrame):
-    """Rounded glass surface with an optional icon + title header."""
+    """Win11 settings card: optional header row plus a body layout."""
 
     def __init__(self, title: str = "", subtitle: str = "",
-                 icon: str = "", accent: str | None = None, parent=None):
+                 parent=None):
         super().__init__(parent)
-        self._accent = accent
-        self._radius = Radius.CARD
         self.setAttribute(Qt.WA_StyledBackground, False)
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(Space.LG, Space.LG - 2, Space.LG, Space.LG - 2)
+        outer.setContentsMargins(Space.LG, Space.MD + 2, Space.LG, Space.MD + 2)
         outer.setSpacing(Space.MD)
 
+        self.header: QHBoxLayout | None = None
         if title:
             header = QHBoxLayout()
-            header.setSpacing(Space.SM)
-            if icon:
-                glyph = QLabel(icon)
-                glyph.setFont(ui_font(13))
-                glyph.setStyleSheet(
-                    f"color: {accent or Palette.SKY}; background: transparent;")
-                glyph.setFixedWidth(18)
-                glyph.setAlignment(Qt.AlignCenter)
-                header.addWidget(glyph, 0, Qt.AlignTop)
-            text_col = QVBoxLayout()
-            text_col.setSpacing(1)
+            header.setSpacing(Space.MD)
+            column = QVBoxLayout()
+            column.setSpacing(1)
             t = QLabel(title)
-            t.setFont(ui_font(13, QFont.DemiBold))
-            t.setStyleSheet(f"color: {Palette.TEXT}; background: transparent;")
-            text_col.addWidget(t)
+            t.setProperty("role", "strong")
+            column.addWidget(t)
             if subtitle:
                 s = QLabel(subtitle)
-                s.setFont(ui_font(11))
-                s.setStyleSheet(
-                    f"color: {Palette.TEXT_DIM}; background: transparent;")
-                text_col.addWidget(s)
-            header.addLayout(text_col, 1)
+                s.setProperty("role", "caption")
+                s.setWordWrap(True)
+                column.addWidget(s)
+            header.addLayout(column, 1)
             self.header = header
             outer.addLayout(header)
-        else:
-            self.header = None
 
         self.body = QVBoxLayout()
         self.body.setContentsMargins(0, 0, 0, 0)
@@ -120,85 +101,118 @@ class Card(QFrame):
         else:
             self.body.addLayout(item)
 
-    def set_accent(self, accent: str | None) -> None:
-        self._accent = accent
-        self.update()
-
     def paintEvent(self, event):
+        t = theme()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        path = rounded_path(rect, self._radius)
+        radius = Radius.CARD
 
-        grad = QLinearGradient(rect.topLeft(), rect.bottomRight())
-        grad.setColorAt(0.0, qc(Palette.SURFACE))
-        grad.setColorAt(1.0, qc(Palette.SURFACE_2))
         painter.setPen(Qt.NoPen)
-        painter.setBrush(grad)
-        painter.drawPath(path)
+        painter.setBrush(qc(t.layer))
+        painter.drawPath(rounded_path(rect, radius))
 
+        # very subtle material sheen so the card is not perfectly flat
         painter.save()
-        painter.setClipPath(path)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(radial_highlight(rect, Palette.SKY, 26))
-        painter.drawPath(path)
-        # top hairline highlight
-        hl = QLinearGradient(rect.topLeft(), rect.topRight())
-        hl.setColorAt(0.0, QColor(255, 255, 255, 0))
-        hl.setColorAt(0.35, QColor(255, 255, 255, 26))
-        hl.setColorAt(1.0, QColor(255, 255, 255, 0))
-        painter.setBrush(hl)
-        painter.drawRect(QRectF(rect.left(), rect.top(), rect.width(), 1.0))
+        painter.setClipPath(rounded_path(rect, radius))
+        sheen = QColor(255, 255, 255, 10 if t.is_dark else 120)
+        painter.setBrush(sheen)
+        painter.drawRect(QRectF(rect.left(), rect.top(), rect.width(),
+                                rect.height() * 0.5))
         painter.restore()
 
-        border = qc(self._accent) if self._accent else qc(Palette.BORDER)
-        painter.setPen(QPen(border, 1.0))
         painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(qc(t.card_stroke), 1.0))
         painter.drawPath(rounded_path(rect.adjusted(0.5, 0.5, -0.5, -0.5),
-                                      self._radius - 1))
+                                      radius - 0.5))
+
+
+class SettingsRow(QWidget):
+    """A Win11 settings row: title + description on the left, control right."""
+
+    def __init__(self, title: str, description: str = "", control: QWidget | None = None,
+                 parent=None):
+        super().__init__(parent)
+        self.setMinimumHeight(56)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, Space.SM, 0, Space.SM)
+        layout.setSpacing(Space.LG)
+
+        column = QVBoxLayout()
+        column.setSpacing(1)
+        label = QLabel(title)
+        label.setProperty("role", "body")
+        column.addWidget(label)
+        if description:
+            desc = QLabel(description)
+            desc.setProperty("role", "caption")
+            desc.setWordWrap(True)
+            column.addWidget(desc)
+        layout.addLayout(column, 1)
+
+        if control is not None:
+            layout.addWidget(control, 0, Qt.AlignVCenter)
+
+        self.title_label = label
+        self.control = control
+
+
+class Divider(QFrame):
+    """1px Win11 divider line."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(1)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), qc(theme().divider))
+
+
+# --------------------------------------------------------------------------
+# Title bar
+# --------------------------------------------------------------------------
 
 
 class TitleBar(QWidget):
-    """Frameless-window title bar: logo, wordmark, version chip, controls."""
+    """Windows 11 caption bar: app icon, title, caption buttons."""
 
     minimize_requested = Signal()
     close_requested = Signal()
 
-    def __init__(self, title: str = "NexaTrans", version: str = "v2.0",
+    HEIGHT = 32
+
+    def __init__(self, title: str = "NexaTrans", subtitle: str = "",
                  parent=None):
         super().__init__(parent)
-        self.setFixedHeight(48)
+        self.setFixedHeight(self.HEIGHT)
         self._drag_offset: QPoint | None = None
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(Space.LG, Space.SM, Space.MD, 0)
+        layout.setContentsMargins(Space.MD, 0, 0, 0)
         layout.setSpacing(Space.SM)
 
-        layout.addWidget(LogoMark(26))
-        self.title_label = QLabel(title)
-        self.title_label.setFont(ui_font(15, QFont.Bold))
-        self.title_label.setStyleSheet(
-            f"color: {Palette.TEXT}; background: transparent;")
-        layout.addWidget(self.title_label)
+        layout.addWidget(LogoMark(16), 0, Qt.AlignVCenter)
 
-        self.version_chip = QLabel(version)
-        self.version_chip.setFont(ui_font(10, QFont.DemiBold))
-        self.version_chip.setStyleSheet(
-            f"color: {Palette.SKY}; background: {qc(Palette.SKY, 26).name(QColor.HexArgb)};"
-            f" border: 1px solid {qc(Palette.SKY, 60).name(QColor.HexArgb)};"
-            f" border-radius: 7px; padding: 2px 7px;")
-        layout.addWidget(self.version_chip, 0, Qt.AlignVCenter)
+        self.title_label = QLabel(title)
+        self.title_label.setProperty("role", "window-title")
+        layout.addWidget(self.title_label, 0, Qt.AlignVCenter)
+
+        if subtitle:
+            self.subtitle_label = QLabel(subtitle)
+            self.subtitle_label.setProperty("role", "caption")
+            layout.addWidget(self.subtitle_label, 0, Qt.AlignVCenter)
 
         layout.addStretch(1)
 
-        self.min_btn = IconButton("\u2013", 28)
+        self.min_btn = CaptionButton(CaptionButton.MINIMIZE)
         self.min_btn.setToolTip("\u6700\u5c0f\u5316\u5230\u6258\u76d8")
         self.min_btn.clicked.connect(self.minimize_requested.emit)
         layout.addWidget(self.min_btn)
 
-        self.close_btn = IconButton("\u2715", 28, tone="danger")
-        self.close_btn.set_hover_color(Palette.DANGER_2)
+        self.close_btn = CaptionButton(CaptionButton.CLOSE)
         self.close_btn.setToolTip("\u5173\u95ed")
+        self.close_btn.set_top_right_round(0)
         self.close_btn.clicked.connect(self.close_requested.emit)
         layout.addWidget(self.close_btn)
 
@@ -207,31 +221,44 @@ class TitleBar(QWidget):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             window = self.window()
-            self._drag_offset = event.globalPosition().toPoint() - \
-                window.frameGeometry().topLeft()
+            self._drag_offset = (event.globalPosition().toPoint()
+                                 - window.frameGeometry().topLeft())
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         if self._drag_offset is not None and event.buttons() & Qt.LeftButton:
-            self.window().move(
-                event.globalPosition().toPoint() - self._drag_offset)
+            self.window().move(event.globalPosition().toPoint()
+                               - self._drag_offset)
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
         self._drag_offset = None
         super().mouseReleaseEvent(event)
 
+    def mouseDoubleClickEvent(self, event):
+        # fixed-size utility window: nothing to maximise
+        event.accept()
 
-class SlideStack(QWidget):
-    """Tiny carousel: pages slide horizontally with an eased transition."""
+
+# --------------------------------------------------------------------------
+# Page stack
+# --------------------------------------------------------------------------
+
+
+class FluentStack(QWidget):
+    """
+    WinUI page host: the incoming page fades in while sliding up slightly,
+    the outgoing page fades out.  Matches the Fluent "page transition".
+    """
 
     page_changed = Signal(int)
+
+    OFFSET = 22          # px the new page rises from
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._pages: list[QWidget] = []
         self._index = -1
-        self._animating = False
 
     def addWidget(self, widget: QWidget) -> QWidget:
         widget.setParent(self)
@@ -259,6 +286,15 @@ class SlideStack(QWidget):
             page.setGeometry(0, 0, self.width(), self.height())
         super().resizeEvent(event)
 
+    @staticmethod
+    def _opacity_effect(widget: QWidget, value: float) -> QGraphicsOpacityEffect:
+        effect = widget.graphicsEffect()
+        if not isinstance(effect, QGraphicsOpacityEffect):
+            effect = QGraphicsOpacityEffect(widget)
+            widget.setGraphicsEffect(effect)
+        effect.setOpacity(value)
+        return effect
+
     def setCurrentIndex(self, index: int, animate_transition: bool = True) -> None:
         if not (0 <= index < len(self._pages)) or index == self._index:
             return
@@ -266,37 +302,37 @@ class SlideStack(QWidget):
         target = self._pages[index]
         self._index = index
 
-        width = max(1, self.width())
-        target.setGeometry(0, 0, width, self.height())
-        target.move(width, 0)
+        target.setGeometry(0, 0, self.width(), self.height())
         target.show()
         target.raise_()
 
         if previous is None or not animate_transition:
             if previous is not None:
                 previous.hide()
-                previous.move(0, 0)
+                previous.setGraphicsEffect(None)
             target.move(0, 0)
+            target.setGraphicsEffect(None)
             self.page_changed.emit(index)
             return
 
-        direction = 1 if index > self._pages.index(previous) else -1
-        start_target = direction * width
-        target.move(start_target, 0)
-
-        self._animating = True
-
-        def _finish():
-            self._animating = False
-            previous.hide()
-            previous.move(0, 0)
-            target.move(0, 0)
-            self.page_changed.emit(index)
-
-        animate(self, "page_in", start_target, 0,
-                lambda v: target.move(int(v), 0),
-                duration=Motion.PAGE, easing=QEasingCurve.OutCubic,
-                finished=_finish)
-        animate(self, "page_out", 0, -start_target,
-                lambda v: previous.move(int(v), 0),
+        # incoming: fade in + slide up
+        effect = self._opacity_effect(target, 0.0)
+        target.move(0, self.OFFSET)
+        animate(self, "page_in_y", float(self.OFFSET), 0.0,
+                lambda v: target.move(0, int(v)),
                 duration=Motion.PAGE, easing=QEasingCurve.OutCubic)
+        animate(self, "page_in_a", 0.0, 1.0,
+                lambda v: effect.setOpacity(float(v)),
+                duration=Motion.PAGE, easing=QEasingCurve.OutCubic,
+                finished=lambda: target.setGraphicsEffect(None))
+
+        # outgoing: fade out
+        out = self._opacity_effect(previous, 1.0)
+        animate(self, "page_out_a", 1.0, 0.0,
+                lambda v: out.setOpacity(float(v)),
+                duration=Motion.FAST, easing=QEasingCurve.InCubic,
+                finished=lambda: (previous.hide(),
+                                  previous.setGraphicsEffect(None),
+                                  previous.move(0, 0)))
+
+        self.page_changed.emit(index)

@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-NexaTrans - offscreen UI preview harness.
+NexaTrans - offscreen UI preview harness (Windows 11 Fluent theme).
 
-Renders every UI state to PNG using the Qt "offscreen" platform plugin, so
-the visual result can be reviewed (and regressions caught) without a real
-desktop session.
+Renders every UI state to PNG using the Qt "offscreen" platform plugin so the
+result can be reviewed - and regressions caught - without a desktop session.
+Both the light and the dark theme are rendered side by side.
 
 Usage:
     python tools/ui_preview.py [output_dir]
@@ -21,43 +21,30 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from PySide6.QtCore import QRect, Qt, QTimer                     # noqa: E402
+from PySide6.QtCore import QPoint, QRect, Qt                      # noqa: E402
 from PySide6.QtGui import (
     QColor, QFontDatabase, QLinearGradient, QPainter, QPixmap,
-)                                                                # noqa: E402
-from PySide6.QtWidgets import QApplication                       # noqa: E402
+)                                                                 # noqa: E402
+from PySide6.QtWidgets import (
+    QApplication, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
+)                                                                 # noqa: E402
 
-from config.config_manager import ConfigManager                  # noqa: E402
-from ui.main_window import MainWindow, SHADOW_PAD                # noqa: E402
-from ui.theme import apply_app_theme                             # noqa: E402
+from config.config_manager import ConfigManager                   # noqa: E402
+from ui.main_window import MainWindow, SHADOW_PAD                 # noqa: E402
+from ui.theme import (                                            # noqa: E402
+    MODE_DARK, MODE_LIGHT, apply_app_theme, qc, set_theme_mode, theme,
+)
+from ui.widgets import (                                          # noqa: E402
+    Card, FluentButton, FluentSlider, InfoBar, LogoMark, MetricTile,
+    ProgressRing, StatusBadge, ToggleSwitch,
+)
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "_ui_preview")
-DESKTOP_TOP = QColor("#232C3D")
-DESKTOP_BOTTOM = QColor("#0C1017")
 
-
-def pump(app: QApplication, ms: int) -> None:
-    """Run the event loop (so animations advance) for ``ms`` milliseconds."""
-    deadline = time.time() + ms / 1000.0
-    while time.time() < deadline:
-        app.processEvents()
-        time.sleep(0.004)
-
-
-def shoot(widget, path: str, margin: int = 0) -> None:
-    """Grab ``widget`` and composite it over a desktop-like backdrop."""
-    pix = widget.grab()
-    canvas = QPixmap(pix.width() + margin * 2, pix.height() + margin * 2)
-    painter = QPainter(canvas)
-    grad = QLinearGradient(0, 0, 0, canvas.height())
-    grad.setColorAt(0.0, DESKTOP_TOP)
-    grad.setColorAt(1.0, DESKTOP_BOTTOM)
-    painter.fillRect(canvas.rect(), grad)
-    painter.drawPixmap(margin, margin, pix)
-    painter.end()
-    canvas.save(path)
-    print(f"  saved {os.path.relpath(path, ROOT)}  "
-          f"({canvas.width()}x{canvas.height()})")
+DESKTOP = {
+    "dark": (QColor("#191C22"), QColor("#0A0C10")),
+    "light": (QColor("#DCE3EC"), QColor("#B9C4D2")),
+}
 
 
 def register_fonts() -> None:
@@ -73,20 +60,53 @@ def register_fonts() -> None:
         return
     os.environ.setdefault("QT_QPA_FONTDIR", font_dir)
     loaded = []
-    for name in ("msyh.ttc", "msyhbd.ttc", "msyhl.ttc", "segoeui.ttf",
+    for name in ("SegUIVar.ttf", "msyh.ttc", "msyhbd.ttc", "segoeui.ttf",
                  "segoeuib.ttf", "seguisym.ttf", "consola.ttf",
-                 "CascadiaMono.ttf", "CascadiaCode.ttf", "seguiemj.ttf"):
+                 "CascadiaMono.ttf", "seguiemj.ttf"):
         path = os.path.join(font_dir, name)
         if os.path.exists(path) and QFontDatabase.addApplicationFont(path) >= 0:
             loaded.append(name)
     print(f"  fonts registered: {', '.join(loaded) if loaded else 'none'}")
+    print(f"  families: {[f for f in QFontDatabase.families() if 'Variable' in f]}")
+
+
+def pump(app: QApplication, ms: int) -> None:
+    """Run the event loop (so animations advance) for ``ms`` milliseconds."""
+    deadline = time.time() + ms / 1000.0
+    while time.time() < deadline:
+        app.processEvents()
+        time.sleep(0.004)
+
+
+def shoot(widget, path: str) -> None:
+    """Grab ``widget`` and composite it over a desktop-like backdrop."""
+    pix = widget.grab()
+    canvas = QPixmap(pix.size())
+    painter = QPainter(canvas)
+    top, bottom = DESKTOP["dark" if theme().is_dark else "light"]
+    grad = QLinearGradient(0, 0, 0, canvas.height())
+    grad.setColorAt(0.0, top)
+    grad.setColorAt(1.0, bottom)
+    painter.fillRect(canvas.rect(), grad)
+    painter.drawPixmap(0, 0, pix)
+    painter.end()
+    canvas.save(path)
+    print(f"  saved {os.path.relpath(path, ROOT)}  "
+          f"({canvas.width()}x{canvas.height()})")
+
+
+class Surface(QWidget):
+    """Preview scaffold painted with the current theme's window colour."""
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), qc(theme().window))
 
 
 def make_config() -> ConfigManager:
     tmp = os.path.join(OUT, "_cfg")
     os.makedirs(tmp, exist_ok=True)
-    cfg_path = os.path.join(tmp, "settings.json")
-    cfg = ConfigManager(config_path=cfg_path)
+    cfg = ConfigManager(config_path=os.path.join(tmp, "settings.json"))
     cfg.save_region({"x": 53, "y": 631, "width": 677, "height": 460})
     ui = cfg.get_ui_config()
     ui.update({"fps_target": 14, "show_mask": True, "show_boxes": False,
@@ -95,132 +115,141 @@ def make_config() -> ConfigManager:
     return cfg
 
 
-def main() -> int:
-    os.makedirs(OUT, exist_ok=True)
-    app = QApplication(sys.argv)
-    register_fonts()
-    apply_app_theme(app)
-
-    print("building MainWindow ...")
-    window = MainWindow(make_config())
-    window.show()
-    pump(app, 500)
-
-    print("rendering states ...")
-    shoot(window, os.path.join(OUT, "01_home.png"), margin=0)
-
-    # ---- running state -------------------------------------------------
-    window.start_btn.setText("\u505c\u6b62\u7ffb\u8bd1")
-    window.start_btn.set_variant("danger")
-    window.hero.set_active(True)
-    window.status_pill.set_state("\u9759\u6001 \u8bc6\u522b\u4e2d", "running")
-    window.region_btn.setEnabled(False)
-    window._chip_fps.set_value(58, animate_change=False)
-    window._chip_boxes.set_value(12, animate_change=False)
-    window._chip_trans.set_value(37, animate_change=False)
-    pump(app, 220)
-    shoot(window, os.path.join(OUT, "02_home_running.png"))
-
-    # ---- toast ---------------------------------------------------------
-    from ui.widgets.feedback import Toast
-    Toast.push(window.shell, "\u2713  \u7ffb\u8bd1\u5b8c\u6210\uff0c12 \u6761\u7ed3\u679c",
-               "success", 60000)
-    pump(app, 420)
-    shoot(window, os.path.join(OUT, "03_toast.png"))
-
-    # ---- settings ------------------------------------------------------
-    window._on_toggle_settings()
-    pump(app, 900)
-    shoot(window, os.path.join(OUT, "04_settings.png"))
-
-    # scrolled to the bottom
-    scroll = window.stack.currentWidget().findChild(
-        __import__("PySide6.QtWidgets", fromlist=["QScrollArea"]).QScrollArea)
-    if scroll is not None:
-        bar = scroll.verticalScrollBar()
-        bar.setValue(bar.maximum())
-        pump(app, 250)
-        shoot(window, os.path.join(OUT, "05_settings_bottom.png"))
-
-    # ---- widget gallery (states / hovers) ------------------------------
-    from ui.widgets import (Card, GlowButton, NeonSlider, StatChip,  # noqa
-                            StatusPill, ToggleSwitch, ui_font)
-    from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
-
-    gallery = QWidget()
-    gallery.setFixedSize(430, 330)
+def widget_gallery(app) -> None:
+    """A sheet showing every custom control in its resting/mixed states."""
+    gallery = Surface()
+    gallery.setFixedSize(430, 350)
     gl = QVBoxLayout(gallery)
-    gl.setContentsMargins(18, 18, 18, 18)
+    gl.setContentsMargins(16, 16, 16, 16)
     gl.setSpacing(12)
 
-    card = Card("Widget gallery", "states of the Aurora component kit",
-                icon="\u25c8", accent="#38BDF8")
+    card = Card("Fluent control kit",
+                "states of the Windows 11 widget set")
     row = QHBoxLayout()
-    for text, variant in (("\u4e3b\u64cd\u4f5c", "primary"),
-                          ("\u526f\u64cd\u4f5c", "accent"),
-                          ("\u505c\u6b62", "danger"),
-                          ("\u5b8c\u6210", "success")):
-        b = GlowButton(text, variant, font_size=12)
-        b.setMinimumHeight(38)
+    row.setSpacing(8)
+    for text, variant in (("\u4e3b\u64cd\u4f5c", "accent"),
+                          ("\u6b21\u8981", "standard"),
+                          ("\u8f7b\u91cf", "subtle"),
+                          ("\u5220\u9664", "critical")):
+        b = FluentButton(text, variant, font_size=13)
+        b.setMinimumHeight(32)
         row.addWidget(b)
     card.add(row)
 
     row2 = QHBoxLayout()
+    row2.setSpacing(10)
     for state, text in (("idle", "\u5c31\u7eea"), ("running", "\u8fd0\u884c\u4e2d"),
                         ("busy", "\u52a0\u8f7d\u4e2d"), ("error", "\u5931\u8d25")):
-        row2.addWidget(StatusPill(text, state))
+        row2.addWidget(StatusBadge(text, state))
     row2.addStretch(1)
     card.add(row2)
 
     row3 = QHBoxLayout()
+    row3.setSpacing(12)
     for on in (True, False):
-        t = ToggleSwitch()
-        t.setChecked(on)
-        row3.addWidget(t)
-    for v in (20, 65, 90):
-        s = NeonSlider(0, 100, v)
-        s.setFixedWidth(90)
-        row3.addWidget(s)
+        sw = ToggleSwitch()
+        sw.setChecked(on)
+        row3.addWidget(sw)
+    for value in (25, 65, 90):
+        sl = FluentSlider(0, 100, value)
+        sl.setFixedWidth(84)
+        row3.addWidget(sl)
+    ring = ProgressRing(18)
+    ring.show()
+    row3.addWidget(ring)
     row3.addStretch(1)
     card.add(row3)
     gl.addWidget(card)
 
     stats = QHBoxLayout()
     stats.setSpacing(8)
-    for cap, val, accent in (("FPS", "58", "#38BDF8"), ("\u8bc6\u522b\u6846", "12", "#22D3EE"),
-                             ("\u7ffb\u8bd1\u6b21\u6570", "37", "#8B5CF6")):
-        chip = StatChip(cap, val, accent)
-        stats.addWidget(chip, 1)
+    for cap, val in (("FPS", "58"), ("\u8bc6\u522b\u6846", "12"),
+                     ("\u7ffb\u8bd1\u6b21\u6570", "37")):
+        stats.addWidget(MetricTile(cap, val), 1)
     gl.addLayout(stats)
     gl.addStretch(1)
-    gallery.setStyleSheet(f"background: #0B111D; border-radius: 12px;")
     gallery.show()
-    pump(app, 300)
-    shoot(gallery, os.path.join(OUT, "06_widgets.png"))
+    pump(app, 250)
+    shoot(gallery, os.path.join(OUT, "gallery.png"))
+    gallery.close()
 
-    # ---- selector overlay ---------------------------------------------
+
+def main() -> int:
+    os.makedirs(OUT, exist_ok=True)
+    app = QApplication(sys.argv)
+    register_fonts()
+    apply_app_theme(app, MODE_DARK)
+
+    config = make_config()
+    window = MainWindow(config)
+    window.show()
+    pump(app, 450)
+
+    for mode in (MODE_DARK, MODE_LIGHT):
+        set_theme_mode(mode, app)
+        window._settings_visible = False
+        window.stack.setCurrentIndex(0, False)
+        window.setFixedHeight(486 + SHADOW_PAD * 2)
+        window.settings_btn.setText("\u8bbe\u7f6e")
+        pump(app, 300)
+        print(f"\n[{mode}]")
+        shoot(window, os.path.join(OUT, f"home_{mode}.png"))
+
+        # running state
+        window.start_btn.setText("\u505c\u6b62\u7ffb\u8bd1")
+        window.start_btn.set_variant("standard")
+        window.status_badge.set_state("\u9759\u6001 \u8bc6\u522b\u4e2d", "running")
+        window.region_btn.setEnabled(False)
+        window._chip_fps.set_value(58, animate_change=False)
+        window._chip_boxes.set_value(12, animate_change=False)
+        window._chip_trans.set_value(37, animate_change=False)
+        pump(app, 220)
+        shoot(window, os.path.join(OUT, f"home_running_{mode}.png"))
+
+        InfoBar.push(window.shell, "\u7ffb\u8bd1\u5b8c\u6210\uff0c12 \u6761\u7ed3\u679c",
+                     "success", 60000)
+        pump(app, 420)
+        shoot(window, os.path.join(OUT, f"infobar_{mode}.png"))
+
+        # reset + settings page
+        window.start_btn.setText("\u5f00\u59cb\u7ffb\u8bd1")
+        window.start_btn.set_variant("accent")
+        window.status_badge.set_state("\u5c31\u7eea", "idle")
+        window.region_btn.setEnabled(True)
+        window._chip_fps.set_value(0, animate_change=False)
+        window._chip_boxes.set_value(0, animate_change=False)
+        window._chip_trans.set_value(0, animate_change=False)
+        window._on_toggle_settings()
+        pump(app, 900)
+        shoot(window, os.path.join(OUT, f"settings_{mode}.png"))
+
+        window._on_toggle_settings()
+        pump(app, 700)
+
+    widget_gallery(app)
+
     from ui.selector_window import SelectorWindow
-    sel = SelectorWindow({"opacity": 0.5, "border": True})
-    sel.setGeometry(QRect(0, 0, 1280, 720))
-    pump(app, 250)
-    shoot(sel, os.path.join(OUT, "07_selector_idle.png"))
+    for mode in (MODE_DARK, MODE_LIGHT):
+        set_theme_mode(mode, app)
+        sel = SelectorWindow({"opacity": 0.5, "border": True})
+        sel.setGeometry(QRect(0, 0, 1280, 720))
+        pump(app, 250)
+        shoot(sel, os.path.join(OUT, f"selector_idle_{mode}.png"))
 
-    from PySide6.QtCore import QPoint
-    sel._start_point = QPoint(340, 220)
-    sel._end_point = QPoint(940, 470)
-    sel.update()
-    pump(app, 250)
-    shoot(sel, os.path.join(OUT, "08_selector_drag.png"))
-    sel.close()
+        sel._start_point = QPoint(340, 220)
+        sel._end_point = QPoint(940, 470)
+        sel._is_selecting = True
+        pump(app, 250)
+        shoot(sel, os.path.join(OUT, f"selector_drag_{mode}.png"))
+        sel.close()
 
-    # ---- region border overlay ----------------------------------------
-    from ui.region_overlay import RegionOverlay
-    ov = RegionOverlay()
-    ov.update_region({"x": 0, "y": 0, "width": 677, "height": 300})
-    ov.set_test_visible(True)
-    pump(app, 700)
-    shoot(ov, os.path.join(OUT, "09_region_overlay.png"))
-    ov.close()
+        from ui.region_overlay import RegionOverlay
+        ov = RegionOverlay()
+        ov.update_region({"x": 0, "y": 0, "width": 677, "height": 300})
+        ov.set_test_visible(True)
+        pump(app, 500)
+        shoot(ov, os.path.join(OUT, f"region_overlay_{mode}.png"))
+        ov.close()
 
     print("\nlayout diagnostics")
     print(f"  window        : {window.width()}x{window.height()}")

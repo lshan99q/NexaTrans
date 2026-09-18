@@ -118,8 +118,9 @@ def main():
         app.setApplicationVersion("1.2.1")
         app.setOrganizationName("NexaTrans")
 
-        # UI v2.0 "Aurora": install fonts + global stylesheet before any
-        # widget is created so native dialogs/menus match the app theme.
+        # Windows 11 Fluent UI: install fonts + the theme style sheet before
+        # any widget is created so native dialogs/menus match the app theme.
+        # MainWindow re-applies the theme saved in the config afterwards.
         try:
             from ui.theme import apply_app_theme
             apply_app_theme(app)

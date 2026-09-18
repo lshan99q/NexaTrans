@@ -26,7 +26,10 @@ from PySide6.QtWidgets import QApplication                           # noqa: E40
 
 from config.config_manager import ConfigManager                    # noqa: E402
 from ui.main_window import MainWindow                              # noqa: E402
-from ui.theme import apply_app_theme                               # noqa: E402
+from ui.theme import (                                             # noqa: E402
+    MODE_DARK, MODE_LIGHT, MODE_SYSTEM, apply_app_theme, set_theme_mode,
+    system_accent, system_theme_mode, theme,
+)
 
 FAILURES: list[str] = []
 
@@ -47,7 +50,17 @@ def pump(app: QApplication, ms: int = 120) -> None:
 
 def main() -> int:
     app = QApplication(sys.argv)
-    apply_app_theme(app)
+    apply_app_theme(app, MODE_SYSTEM)
+
+    print("windows integration")
+    check("system theme detected", system_theme_mode() in (MODE_LIGHT, MODE_DARK),
+          system_theme_mode())
+    accent = system_accent()
+    check("system accent colour read from the registry",
+          accent.startswith("#FF") and len(accent) == 9, accent)
+    check("theme follows the system setting",
+          theme().is_dark == (system_theme_mode() == MODE_DARK),
+          f"accent={accent} dark={theme().is_dark}")
 
     with tempfile.TemporaryDirectory() as tmp:
         cfg_path = os.path.join(tmp, "settings.json")
@@ -134,25 +147,41 @@ def main() -> int:
         check("window shrank back", abs(window.height() - home_h) <= 2,
               f"{window.height()} vs {home_h}")
 
-        print("\nstatus + toast")
-        from ui.widgets.feedback import Toast
-        window.status_pill.set_state("\u8fd0\u884c\u4e2d", "running")
-        check("status pill running state",
-              window.status_pill._timer.isActive())
-        window.status_pill.set_state("\u5c31\u7eea", "idle")
-        check("status pill idle state stops the pulse",
-              not window.status_pill._timer.isActive())
+        print("\nstatus + info bar")
+        from ui.widgets.feedback import InfoBar
+        window.status_badge.set_state("\u8fd0\u884c\u4e2d", "running")
+        check("status badge running state",
+              window.status_badge._timer.isActive())
+        window.status_badge.set_state("\u5c31\u7eea", "idle")
+        check("status badge idle state stops the pulse",
+              not window.status_badge._timer.isActive())
 
-        toast = Toast.push(window.shell, "\u6d4b\u8bd5\u901a\u77e5", "info", 300)
+        bar = InfoBar.push(window.shell, "\u6d4b\u8bd5\u901a\u77e5", "info", 300)
         pump(app, 200)
-        check("toast is visible", toast.isVisible())
-        toast.dismiss()
+        check("info bar is visible", bar.isVisible())
+        check("info bar sits below the caption bar",
+              bar.y() >= 32, f"y={bar.y()}")
+        bar.dismiss()
         pump(app, 400)
-        check("toast dismissed itself", not toast.isVisible())
+        check("info bar dismissed itself", not bar.isVisible())
 
         window._chip_fps.set_value(42, animate_change=False)
-        check("stat chip shows the new value",
+        check("metric tile shows the new value",
               window._chip_fps._value == "42", window._chip_fps._value)
+
+        print("\ntheme switching")
+        set_theme_mode(MODE_LIGHT, app)
+        check("light theme applied", theme().is_dark is False)
+        check("style sheet is themed", "QComboBox" in app.styleSheet())
+        set_theme_mode(MODE_DARK, app)
+        check("dark theme applied", theme().is_dark is True)
+        window.theme_combo.setCurrentIndex(
+            window.theme_combo.findData(MODE_LIGHT))
+        pump(app, 120)
+        check("theme choice persists to config",
+              config.get_ui_config().get("theme_mode") == MODE_LIGHT,
+              str(config.get_ui_config().get("theme_mode")))
+        set_theme_mode(MODE_SYSTEM, app)
 
         print("\nregion selector")
         from ui.selector_window import SelectorWindow

@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-NexaTrans - Main Window  (UI v2.0 "Aurora")
+NexaTrans - Main Window  (Windows 11 Fluent UI)
 
-Frameless translucent window with a custom title bar, an animated hero
-action panel, live metric chips, toast notifications and a slide-in
-settings page.
+Frameless Mica-style window with a Win11 caption bar, a WinUI settings-card
+layout, a WinUI page transition and an InfoBar notification.
+
+The theme follows the Windows personalisation settings (light / dark) and the
+system accent colour; it can be overridden from the Settings page.
 
 Business logic (pipeline control, hotkeys, tray, config persistence) is
 unchanged from v1.2 - only the presentation layer was rebuilt.
@@ -16,32 +18,33 @@ import os
 import sys
 
 from PySide6.QtCore import (
-    QAbstractNativeEventFilter, QEasingCurve, QRectF, Qt, QTimer,
+    QAbstractNativeEventFilter, QEasingCurve, QPointF, QRectF, Qt, QTimer,
 )
 from PySide6.QtGui import (
     QAction, QColor, QFont, QIcon, QLinearGradient, QPainter, QPen, QPixmap,
     QRadialGradient,
 )
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QFrame, QGraphicsOpacityEffect, QHBoxLayout,
-    QLabel, QLineEdit, QMenu, QMessageBox, QScrollArea, QSystemTrayIcon,
-    QVBoxLayout, QWidget,
+    QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QMenu,
+    QMessageBox, QScrollArea, QSystemTrayIcon, QVBoxLayout, QWidget,
 )
 
 from config.config_manager import ConfigManager
 from ui.selector_window import SelectorWindow
 from ui.region_overlay import RegionOverlay
 from ui.theme import (
-    Motion, Palette, Radius, Space, apply_app_theme, qc, rounded_path,
-    shadow_pixmap, ui_font,
+    MODE_DARK, MODE_LABELS, MODE_LIGHT, MODE_SYSTEM, Motion, Radius, Space,
+    apply_app_theme, is_dark, qc, rounded_path, set_theme_mode, shadow_pixmap,
+    theme, ui_font,
 )
 from ui.widgets.anim import animate
-from ui.widgets.buttons import GlowButton, IconButton
+from ui.widgets.buttons import FluentButton, IconButton
 from ui.widgets.containers import (
-    Card, SlideStack, TitleBar, paint_logo_mark,
+    Card, Divider, FluentStack, SettingsRow, TitleBar, paint_logo_mark,
 )
+from ui.widgets.controls import FluentSlider, ToggleSwitch
 from ui.widgets.feedback import (
-    SliderRow, StatChip, StatusPill, Toast, ToggleRow,
+    InfoBar, MetricTile, ProgressRing, StatusBadge,
 )
 
 logger = logging.getLogger("NexaTrans.MainWindow")
@@ -91,11 +94,16 @@ HOTKEY_KEYS = [chr(i) for i in range(ord("A"), ord("Z") + 1)] + \
               ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9",
                "F10", "F11", "F12"]
 
-# ---- window geometry ----
+# ---- geometry ----
 WINDOW_W = 452
-HOME_H = 490
-SHADOW_PAD = 20
+HOME_H = 486
+SHADOW_PAD = 16
 APP_VERSION = "v1.2.1"
+
+# ---- optional DWM integration (rounded corners / dark caption) ----
+DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+DWMWA_WINDOW_CORNER_PREFERENCE = 33
+DWMWCP_ROUND = 2
 
 
 def _read_env_key():
@@ -131,9 +139,9 @@ def _write_env_key(key: str):
 
 
 def _make_tray_icon():
-    """Multi-resolution tray icon built from the Aurora logo mark."""
+    """Multi-resolution tray icon built from the Fluent logo tile."""
     icon = QIcon()
-    for size in (16, 24, 32, 48, 64):
+    for size in (16, 20, 24, 32, 48, 64):
         pix = QPixmap(size, size)
         pix.fill(Qt.transparent)
         p = QPainter(pix)
@@ -161,65 +169,6 @@ class HotkeyFilter(QAbstractNativeEventFilter):
         return False, 0
 
 
-class HeroCard(Card):
-    """Primary action card; paints a sweeping light band while running."""
-
-    def __init__(self, parent=None):
-        super().__init__(accent=Palette.SKY, parent=parent)
-        self._phase = 0.0
-        self._active = False
-        self._timer = QTimer(self)
-        self._timer.setInterval(40)
-        self._timer.timeout.connect(self._tick)
-
-    def set_active(self, active: bool) -> None:
-        self._active = bool(active)
-        if self._active:
-            self._timer.start()
-        else:
-            self._timer.stop()
-            self._phase = 0.0
-        self.update()
-
-    def _tick(self):
-        self._phase = (self._phase + 0.007) % 1.0
-        self.update()
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        if not self._active:
-            return
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        path = rounded_path(rect, self._radius)
-        painter.setClipPath(path)
-        x = rect.width() * (self._phase * 1.7 - 0.35)
-        band = QLinearGradient(x - 110, rect.top(), x + 110, rect.bottom())
-        band.setColorAt(0.0, qc(Palette.CYAN, 0))
-        band.setColorAt(0.5, qc(Palette.CYAN, 30))
-        band.setColorAt(1.0, qc(Palette.CYAN, 0))
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(band)
-        painter.drawPath(path)
-
-
-class Capsule(QWidget):
-    """Rounded translucent container used for the hotkey selectors."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setMinimumHeight(36)
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        painter.setPen(QPen(qc(Palette.BORDER), 1))
-        painter.setBrush(qc(Palette.INSET, 190))
-        painter.drawRoundedRect(rect, 10, 10)
-
-
 class MainWindow(QWidget):
 
     def __init__(self, config_manager: ConfigManager):
@@ -244,7 +193,9 @@ class MainWindow(QWidget):
 
         app = QApplication.instance()
         if app is not None:
-            apply_app_theme(app)
+            # honour the persisted theme choice, default = follow Windows
+            ui = self.config_manager.get_ui_config()
+            apply_app_theme(app, ui.get("theme_mode", MODE_SYSTEM))
 
         self._setup_ui()
         self._setup_tray()
@@ -254,8 +205,7 @@ class MainWindow(QWidget):
         if app:
             app.installNativeEventFilter(self._hotkey_filter)
         QTimer.singleShot(500, self._register_hotkey)
-        QTimer.singleShot(60, lambda: self._fade_in(self))
-        logger.info("MainWindow v2.0 (Aurora UI) ready")
+        logger.info("MainWindow v2.0 (Fluent UI) ready")
 
     # ==================================================================
     # window shell
@@ -269,8 +219,7 @@ class MainWindow(QWidget):
         self.setFixedHeight(HOME_H + SHADOW_PAD * 2)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(SHADOW_PAD, SHADOW_PAD,
-                                SHADOW_PAD, SHADOW_PAD)
+        root.setContentsMargins(SHADOW_PAD, SHADOW_PAD, SHADOW_PAD, SHADOW_PAD)
         root.setSpacing(0)
 
         self.shell = QWidget(self)
@@ -284,16 +233,35 @@ class MainWindow(QWidget):
         self.title_bar = TitleBar("NexaTrans", APP_VERSION)
         self.title_bar.minimize_requested.connect(self._hide_to_tray)
         self.title_bar.close_requested.connect(self.close)
+        self.title_bar.close_btn.set_top_right_round(Radius.WINDOW)
         shell_layout.addWidget(self.title_bar)
 
-        self.stack = SlideStack()
+        self.stack = FluentStack()
         shell_layout.addWidget(self.stack, 1)
 
         self.stack.addWidget(self._build_home_page())
         self.stack.addWidget(self._build_settings_page())
         self._settings_built = True
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._apply_dwm()
+
+    def _apply_dwm(self) -> None:
+        """Ask DWM for rounded corners / dark caption on Windows 11."""
+        try:
+            hwnd = int(self.winId())
+            if not hwnd:
+                return
+            dwm = ctypes.windll.dwmapi
+            pref = ctypes.c_int(DWMWCP_ROUND)
+            dwm.DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE,
+                                      ctypes.byref(pref), ctypes.sizeof(pref))
+        except Exception:
+            pass
+
     def paintEvent(self, event):
+        t = theme()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
 
@@ -301,49 +269,52 @@ class MainWindow(QWidget):
         panel = QRectF(self.rect()).adjusted(pad, pad, -pad, -pad)
         radius = Radius.WINDOW
 
-        # soft outer shadow (cached blurred pixmap)
+        # soft drop shadow (Win11 windows have a fairly wide, soft shadow)
         shadow = shadow_pixmap(int(panel.width()), int(panel.height()),
-                               radius, 18, "#000000", 190, 10)
-        painter.drawPixmap(int(panel.left()) - 36,
-                           int(panel.top()) - 36, shadow)
+                               radius, 16, t.shadow, t.shadow_alpha, 6)
+        painter.drawPixmap(int(panel.left()) - 32, int(panel.top()) - 32,
+                           shadow)
 
-        # panel body
-        grad = QLinearGradient(panel.topLeft(), panel.bottomRight())
-        grad.setColorAt(0.0, qc(Palette.WINDOW_2))
-        grad.setColorAt(0.55, qc(Palette.WINDOW))
-        grad.setColorAt(1.0, qc("#05080E"))
+        # Mica-like material: base gradient + two very soft tint blobs
         path = rounded_path(panel, radius)
+        grad = QLinearGradient(panel.topLeft(), panel.bottomLeft())
+        grad.setColorAt(0.0, qc(t.window))
+        grad.setColorAt(1.0, qc(t.window_alt))
         painter.setPen(Qt.NoPen)
         painter.setBrush(grad)
         painter.drawPath(path)
 
-        # aurora glow in the top-left corner
         painter.save()
         painter.setClipPath(path)
-        glow = QRadialGradient(panel.left() + panel.width() * 0.12,
-                               panel.top() - panel.height() * 0.05,
-                               panel.width() * 0.95)
-        glow.setColorAt(0.0, qc(Palette.INDIGO, 60))
-        glow.setColorAt(0.45, qc(Palette.CYAN, 18))
-        glow.setColorAt(1.0, qc(Palette.CYAN, 0))
-        painter.setBrush(glow)
+        blob = QRadialGradient(panel.left() + panel.width() * 0.15,
+                               panel.top() - panel.height() * 0.10,
+                               panel.width() * 1.05)
+        blob.setColorAt(0.0, qc(t.tint_a))
+        blob.setColorAt(1.0, QColor(255, 255, 255, 0))
+        painter.setBrush(blob)
+        painter.drawPath(path)
+
+        blob2 = QRadialGradient(panel.right() - panel.width() * 0.10,
+                                panel.bottom() + panel.height() * 0.05,
+                                panel.width() * 0.95)
+        blob2.setColorAt(0.0, qc(t.tint_b))
+        blob2.setColorAt(1.0, QColor(255, 255, 255, 0))
+        painter.setBrush(blob2)
         painter.drawPath(path)
         painter.restore()
 
-        # border + inner top highlight
-        painter.setPen(QPen(qc("#243248"), 1))
+        # hairline window border with a brighter top edge (Win11 window stroke)
         painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(qc(t.card_stroke), 1.0))
         painter.drawPath(rounded_path(panel.adjusted(0.5, 0.5, -0.5, -0.5),
                                       radius - 1))
-
         hl = QLinearGradient(panel.topLeft(), panel.topRight())
         hl.setColorAt(0.0, QColor(255, 255, 255, 0))
-        hl.setColorAt(0.25, QColor(255, 255, 255, 34))
-        hl.setColorAt(0.75, QColor(255, 255, 255, 12))
+        hl.setColorAt(0.5, QColor(255, 255, 255, 40 if t.is_dark else 210))
         hl.setColorAt(1.0, QColor(255, 255, 255, 0))
-        painter.setPen(QPen(hl, 1))
-        painter.drawLine(panel.left() + radius, panel.top() + 0.5,
-                         panel.right() - radius, panel.top() + 0.5)
+        painter.setPen(QPen(hl, 1.0))
+        painter.drawLine(QPointF(panel.left() + radius, panel.top() + 0.5),
+                         QPointF(panel.right() - radius, panel.top() + 0.5))
 
     # ==================================================================
     # pages
@@ -353,136 +324,101 @@ class MainWindow(QWidget):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(Space.LG, Space.SM, Space.LG, Space.MD)
-        layout.setSpacing(Space.MD - 2)
+        layout.setSpacing(Space.MD)
 
-        # ---- hero -----------------------------------------------------
-        self.hero = HeroCard()
-        hero = self.hero
-
+        # ---- primary action card --------------------------------------
+        hero = Card()
         head = QHBoxLayout()
         head.setSpacing(Space.SM)
-        eyebrow = QLabel("\u5b9e\u65f6\u5c4f\u5e55\u7ffb\u8bd1\u5f15\u64ce")
-        eyebrow.setFont(ui_font(11, QFont.DemiBold))
-        eyebrow.setStyleSheet(
-            f"color: {Palette.TEXT_DIM}; background: transparent;"
-            " letter-spacing: 1px;")
-        head.addWidget(eyebrow)
+        headline = QLabel("\u5b9e\u65f6\u5c4f\u5e55\u7ffb\u8bd1")
+        headline.setProperty("role", "subtitle")
+        head.addWidget(headline)
         head.addStretch(1)
-        self.status_pill = StatusPill("\u5c31\u7eea", "idle")
-        head.addWidget(self.status_pill)
+        self.status_badge = StatusBadge("\u5c31\u7eea", "idle")
+        head.addWidget(self.status_badge, 0, Qt.AlignVCenter)
         hero.add(head)
 
-        self.start_btn = GlowButton("\u5f00\u59cb\u7ffb\u8bd1", "primary",
-                                    radius=15, font_size=17)
-        self.start_btn.setMinimumHeight(56)
+        self.start_btn = FluentButton("\u5f00\u59cb\u7ffb\u8bd1", "accent",
+                                      font_size=15, bold=True)
+        self.start_btn.setMinimumHeight(40)
         self.start_btn.setToolTip("\u542f\u52a8\u8fde\u7eed\u5b9e\u65f6\u7ffb\u8bd1")
         self.start_btn.clicked.connect(self._on_start)
         hero.add(self.start_btn)
 
         action_row = QHBoxLayout()
         action_row.setSpacing(Space.SM)
-
-        self.once_btn = GlowButton("\u4e00\u6b21\u6027\u7ffb\u8bd1", "accent",
-                                   radius=12, font_size=13)
-        self.once_btn.setMinimumHeight(40)
+        self.once_btn = FluentButton("\u4e00\u6b21\u6027\u7ffb\u8bd1",
+                                     "standard", font_size=14)
+        self.once_btn.setMinimumHeight(32)
         self.once_btn.setToolTip(
             "\u622a\u53d6\u5f53\u524d\u753b\u9762\u5e76\u7ffb\u8bd1\u4e00\u6b21")
         self.once_btn.clicked.connect(self._on_once_translate)
         action_row.addWidget(self.once_btn, 3)
 
-        capsule = Capsule()
-        cap_layout = QHBoxLayout(capsule)
-        cap_layout.setContentsMargins(Space.SM, 4, Space.SM, 4)
-        cap_layout.setSpacing(4)
-
-        self._hotkey_mod_combo = self._make_combo(list(MOD_MAP.keys()), 74)
+        self._hotkey_mod_combo = self._make_combo(list(MOD_MAP.keys()), 86)
         self._hotkey_mod_combo.currentTextChanged.connect(self._on_hotkey_change)
-        cap_layout.addWidget(self._hotkey_mod_combo)
+        action_row.addWidget(self._hotkey_mod_combo, 0)
 
         plus = QLabel("+")
-        plus.setFont(ui_font(11, QFont.Bold))
-        plus.setStyleSheet(f"color: {Palette.TEXT_DIM}; background: transparent;")
-        cap_layout.addWidget(plus)
+        plus.setProperty("role", "caption")
+        action_row.addWidget(plus, 0)
 
-        self._hotkey_key_combo = self._make_combo(HOTKEY_KEYS, 46)
+        self._hotkey_key_combo = self._make_combo(HOTKEY_KEYS, 64)
         self._hotkey_key_combo.currentTextChanged.connect(self._on_hotkey_change)
-        cap_layout.addWidget(self._hotkey_key_combo)
-        action_row.addWidget(capsule, 2)
-
+        action_row.addWidget(self._hotkey_key_combo, 0)
         hero.add(action_row)
 
         self._hotkey_label = QLabel("")
+        self._hotkey_label.setProperty("role", "caption")
         self._hotkey_label.setAlignment(Qt.AlignCenter)
-        self._hotkey_label.setFont(ui_font(10))
-        self._hotkey_label.setStyleSheet(
-            f"color: {Palette.TEXT_DIM}; background: transparent;")
         hero.add(self._hotkey_label)
 
         layout.addWidget(hero)
 
-        # ---- metrics --------------------------------------------------
+        # ---- live metrics ---------------------------------------------
         stats = QHBoxLayout()
         stats.setSpacing(Space.SM)
-        self._chip_fps = StatChip("\u5e27\u7387 FPS", "0", Palette.SKY)
-        self._chip_boxes = StatChip("\u8bc6\u522b\u6846", "0", Palette.CYAN)
-        self._chip_trans = StatChip("\u7ffb\u8bd1\u6b21\u6570", "0", Palette.VIOLET)
+        self._chip_fps = MetricTile("\u5e27\u7387 FPS", "0")
+        self._chip_boxes = MetricTile("\u8bc6\u522b\u6846", "0")
+        self._chip_trans = MetricTile("\u7ffb\u8bd1\u6b21\u6570", "0")
         for chip in (self._chip_fps, self._chip_boxes, self._chip_trans):
             stats.addWidget(chip, 1)
         layout.addLayout(stats)
 
-        # ---- region ---------------------------------------------------
+        # ---- region ----------------------------------------------------
         region_card = Card()
-        region_row = QHBoxLayout()
-        region_row.setSpacing(Space.MD)
-
-        pin = QLabel("\u25c9")
-        pin.setFont(ui_font(16))
-        pin.setStyleSheet(f"color: {Palette.SKY}; background: transparent;")
-        pin.setFixedWidth(20)
-        pin.setAlignment(Qt.AlignCenter)
-        region_row.addWidget(pin)
-
-        region_col = QVBoxLayout()
-        region_col.setSpacing(1)
-        region_title = QLabel("\u7ffb\u8bd1\u533a\u57df")
-        region_title.setFont(ui_font(12, QFont.DemiBold))
-        region_title.setStyleSheet(
-            f"color: {Palette.TEXT}; background: transparent;")
-        region_col.addWidget(region_title)
-        self.region_info = QLabel("\u533a\u57df: \u672a\u9009\u62e9")
-        self.region_info.setFont(ui_font(10, mono=True))
-        self.region_info.setStyleSheet(
-            f"color: {Palette.TEXT_DIM}; background: transparent;")
-        region_col.addWidget(self.region_info)
-        region_row.addLayout(region_col, 1)
-
-        self.region_btn = GlowButton("\u6846\u9009\u533a\u57df", "ghost",
-                                     radius=10, font_size=12)
-        self.region_btn.setMinimumHeight(36)
-        self.region_btn.setMaximumWidth(106)
+        self.region_btn = FluentButton("\u6846\u9009\u533a\u57df", "standard",
+                                       font_size=14)
+        self.region_btn.setFixedWidth(104)
+        self.region_btn.setMinimumHeight(32)
         self.region_btn.clicked.connect(self._on_select_region)
-        region_row.addWidget(self.region_btn, 0)
 
+        self.region_info = QLabel("\u672a\u9009\u62e9")
+        self.region_info.setProperty("role", "caption")
+
+        region_row = SettingsRow("\u7ffb\u8bd1\u533a\u57df",
+                                 "\u5f53\u524d\u7ffb\u8bd1\u533a\u57df\u8303\u56f4",
+                                 self.region_btn)
         region_card.add(region_row)
+        region_card.add(self.region_info)
         layout.addWidget(region_card)
 
         layout.addStretch(1)
 
-        # ---- footer ---------------------------------------------------
+        # ---- footer ----------------------------------------------------
         footer = QHBoxLayout()
         footer.setSpacing(Space.SM)
-        self.settings_btn = GlowButton("\u2699  \u8bbe\u7f6e", "ghost",
-                                       radius=10, font_size=12, bold=False)
-        self.settings_btn.setMinimumHeight(38)
+        self.settings_btn = FluentButton("\u8bbe\u7f6e", "standard",
+                                         font_size=14)
+        self.settings_btn.setMinimumHeight(32)
         self.settings_btn.clicked.connect(self._on_toggle_settings)
-        footer.addWidget(self.settings_btn, 3)
+        footer.addWidget(self.settings_btn, 1)
 
-        self.quit_btn = GlowButton("\u9000\u51fa", "ghost", radius=10,
-                                   font_size=12, bold=False)
-        self.quit_btn.setMinimumHeight(38)
+        self.quit_btn = FluentButton("\u9000\u51fa", "subtle", font_size=14)
+        self.quit_btn.setMinimumHeight(32)
         self.quit_btn.setToolTip("\u9000\u51fa NexaTrans")
         self.quit_btn.clicked.connect(self._quit_app)
-        footer.addWidget(self.quit_btn, 2)
+        footer.addWidget(self.quit_btn, 1)
         layout.addLayout(footer)
 
         return page
@@ -491,18 +427,18 @@ class MainWindow(QWidget):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(Space.LG, 0, Space.LG, Space.MD)
-        layout.setSpacing(Space.MD - 2)
+        layout.setSpacing(Space.SM)
 
         header = QHBoxLayout()
         header.setSpacing(Space.SM)
-        back = IconButton("\u2039", 30)
+        back = IconButton("\u2039", 32)
         back.setToolTip("\u8fd4\u56de")
+        back.setFont(ui_font(20))
         back.clicked.connect(self._on_toggle_settings)
         header.addWidget(back)
 
         title = QLabel("\u8bbe\u7f6e")
-        title.setFont(ui_font(16, QFont.Bold))
-        title.setStyleSheet(f"color: {Palette.TEXT}; background: transparent;")
+        title.setProperty("role", "subtitle")
         header.addWidget(title)
         header.addStretch(1)
         layout.addLayout(header)
@@ -517,38 +453,49 @@ class MainWindow(QWidget):
         content.setAttribute(Qt.WA_StyledBackground, False)
         column = QVBoxLayout(content)
         column.setContentsMargins(0, 2, 6, 2)
-        column.setSpacing(Space.MD - 2)
+        column.setSpacing(Space.MD)
 
-        self._settings_cards: list[QWidget] = []
+        # ---- appearance (theme) ---------------------------------------
+        appearance = Card("\u5916\u89c2",
+                          "\u4e3b\u9898\u9ed8\u8ba4\u8ddf\u968f Windows \u7cfb\u7edf\u8bbe\u7f6e")
+        self.theme_combo = QComboBox()
+        self.theme_combo.setFixedWidth(120)
+        for mode in (MODE_SYSTEM, MODE_LIGHT, MODE_DARK):
+            self.theme_combo.addItem(MODE_LABELS[mode], mode)
+        self.theme_combo.currentIndexChanged.connect(self._on_theme_change)
+        appearance.add(SettingsRow("\u5e94\u7528\u4e3b\u9898",
+                                   "\u6d45\u8272 / \u6df1\u8272 / \u8ddf\u968f\u7cfb\u7edf",
+                                   self.theme_combo))
+        column.addWidget(appearance)
 
-        # ---- API card -------------------------------------------------
-        api_card = Card("DeepSeek API", "\u7528\u4e8e AI \u7ffb\u8bd1\u7684\u5bc6\u94a5",
-                        icon="\u25c8", accent=Palette.SKY)
+        # ---- API -------------------------------------------------------
+        api_card = Card("DeepSeek API", "\u7528\u4e8e AI \u7ffb\u8bd1\u7684\u5bc6\u94a5")
         self.api_key_input = QLineEdit()
         self.api_key_input.setPlaceholderText("sk-...")
         self.api_key_input.setText(_read_env_key())
         self.api_key_input.setEchoMode(QLineEdit.Password)
-        self.api_key_input.setFont(ui_font(12, mono=True))
+        self.api_key_input.setFont(ui_font(13, mono=True))
         self.api_key_input.textChanged.connect(self._on_api_key_change)
         api_card.add(self.api_key_input)
 
         api_row = QHBoxLayout()
         api_row.setSpacing(Space.SM)
-        self.test_btn = GlowButton("\u68c0\u67e5\u8fde\u901a\u6027", "ghost",
-                                   radius=10, font_size=12, bold=False)
-        self.test_btn.setMinimumHeight(34)
+        self.test_btn = FluentButton("\u68c0\u67e5\u8fde\u901a\u6027", "standard",
+                                     font_size=14)
+        self.test_btn.setMinimumHeight(32)
+        self.test_btn.setFixedWidth(126)
         self.test_btn.clicked.connect(self._on_test_connection)
         api_row.addWidget(self.test_btn, 0)
+        self.test_ring = ProgressRing(18)
+        self.test_ring.hide()
+        api_row.addWidget(self.test_ring, 0, Qt.AlignVCenter)
         api_row.addStretch(1)
         api_card.add(api_row)
         column.addWidget(api_card)
-        self._settings_cards.append(api_card)
 
-        # ---- overlay card ---------------------------------------------
-        overlay_card = Card("\u8986\u76d6\u5c42\u663e\u793a",
-                            "\u63a7\u5236\u5c4f\u5e55\u4e0a\u7ed8\u5236\u7684\u5185\u5bb9",
-                            icon="\u25a7", accent=Palette.CYAN)
-        self.mask_check = None
+        # ---- overlay toggles ------------------------------------------
+        overlay_card = Card("\u8986\u76d6\u5c42",
+                            "\u63a7\u5236\u5c4f\u5e55\u4e0a\u7ed8\u5236\u7684\u5185\u5bb9")
         rows = [
             ("mask_check", "\u663e\u793a Mask \u906e\u7f69",
              "\u7528\u80cc\u666f\u8272\u76d6\u4f4f\u539f\u6587\u5b57"),
@@ -561,49 +508,51 @@ class MainWindow(QWidget):
             ("trans_check", "\u542f\u7528 AI \u7ffb\u8bd1",
              "\u8c03\u7528 DeepSeek \u7ffb\u8bd1\u6587\u672c"),
         ]
-        for attr, name, hint in rows:
-            row = ToggleRow(name, hint)
-            setattr(self, attr, row.toggle)
-            overlay_card.add(row)
+        for i, (attr, name, hint) in enumerate(rows):
+            toggle = ToggleSwitch()
+            setattr(self, attr, toggle)
+            if i:
+                overlay_card.add(Divider())
+            overlay_card.add(SettingsRow(name, hint, toggle))
         column.addWidget(overlay_card)
-        self._settings_cards.append(overlay_card)
 
-        # ---- filter card ----------------------------------------------
+        # ---- filters ---------------------------------------------------
         filter_card = Card("\u6587\u5b57\u8fc7\u6ee4\u53c2\u6570",
-                           "\u8c03\u6574\u68c0\u6d4b\u7ed3\u679c\u7684\u7cbe\u7ec6\u5ea6",
-                           icon="\u25d1", accent=Palette.VIOLET)
+                           "\u8c03\u6574\u68c0\u6d4b\u7ed3\u679c\u7684\u7cbe\u7ec6\u5ea6")
         self._s_min_conf, self._l_min_conf = self._add_slider(
             filter_card, "\u6700\u4f4e\u7f6e\u4fe1\u5ea6", 10, 90, 50,
             "{:.2f}", 100.0)
+        filter_card.add(Divider())
         self._s_min_asp, self._l_min_asp = self._add_slider(
             filter_card, "\u6587\u5b57\u957f\u5bbd\u6bd4", 12, 30, 18,
             "{:.1f}", 10.0)
+        filter_card.add(Divider())
         self._s_max_icon, self._l_max_icon = self._add_slider(
             filter_card, "\u56fe\u6807\u5bbd\u9ad8\u6bd4", 10, 18, 14,
             "{:.1f}", 10.0)
+        filter_card.add(Divider())
         self._s_min_area, self._l_min_area = self._add_slider(
             filter_card, "\u6700\u5c0f\u9762\u79ef\u6bd4", 1, 20, 5,
             "{:.3f}", 1000.0)
         column.addWidget(filter_card)
-        self._settings_cards.append(filter_card)
 
-        # ---- performance card -----------------------------------------
-        perf_card = Card("\u6027\u80fd", "\u5237\u65b0\u7387\u4e0e\u663e\u793a\u65f6\u957f",
-                         icon="\u26a1", accent=Palette.WARN)
+        # ---- performance -----------------------------------------------
+        perf_card = Card("\u6027\u80fd",
+                         "\u5237\u65b0\u7387\u4e0e\u4e00\u6b21\u6027\u663e\u793a\u65f6\u957f")
         self._s_fps, self._l_fps = self._add_slider(
             perf_card, "\u5237\u65b0\u9891\u7387 (FPS)", 1, 30, 10,
             "{:.0f}", 1.0)
+        perf_card.add(Divider())
         self._s_once_display, self._l_once_display = self._add_slider(
             perf_card, "\u4e00\u6b21\u6027\u663e\u793a\u65f6\u957f (\u79d2)",
             1, 30, 5, "{:.0f}", 1.0)
         column.addWidget(perf_card)
-        self._settings_cards.append(perf_card)
 
         column.addStretch(1)
         scroll.setWidget(content)
         layout.addWidget(scroll, 1)
 
-        # signal wiring (block signals while loading config later)
+        # signal wiring
         self._s_min_conf.valueChanged.connect(
             lambda v: self._on_f("min_confidence", v, self._l_min_conf,
                                  100.0, "{:.2f}"))
@@ -630,50 +579,38 @@ class MainWindow(QWidget):
     # -- small builders -----------------------------------------------------
 
     @staticmethod
-    def _make_combo(items, width: int):
+    def _make_combo(items, width: int) -> QComboBox:
         combo = QComboBox()
         combo.addItems(list(items))
         combo.setFixedWidth(width)
-        combo.setFixedHeight(28)
-        combo.setFont(ui_font(11, QFont.DemiBold))
+        combo.setFixedHeight(32)
         combo.setCursor(Qt.PointingHandCursor)
         return combo
 
     def _add_slider(self, card: Card, title: str, mn: int, mx: int, dv: int,
                     fmt: str, scale: float):
-        row = SliderRow(title, mn, mx, dv, fmt=fmt, scale=scale)
-        card.add(row)
-        return row.slider, row.value_label
+        """A settings row: title on the left, slider + value chip on the right."""
+        slider = FluentSlider(mn, mx, dv)
+        slider.setFixedWidth(150)
+
+        value = QLabel(fmt.format(dv / scale))
+        value.setProperty("role", "mono")
+        value.setAlignment(Qt.AlignCenter)
+        value.setFixedSize(56, 26)
+
+        holder = QWidget()
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(Space.SM)
+        row.addWidget(slider)
+        row.addWidget(value)
+
+        card.add(SettingsRow(title, "", holder))
+        return slider, value
 
     # ==================================================================
-    # animations
+    # animations / notifications
     # ==================================================================
-
-    def _fade_in(self, widget: QWidget) -> None:
-        effect = widget.graphicsEffect()
-        if not isinstance(effect, QGraphicsOpacityEffect):
-            effect = QGraphicsOpacityEffect(widget)
-            widget.setGraphicsEffect(effect)
-        effect.setOpacity(0.0)
-        animate(widget, "fade_in", 0.0, 1.0,
-                lambda v: effect.setOpacity(float(v)),
-                duration=260, easing=QEasingCurve.OutCubic,
-                finished=lambda: widget.setGraphicsEffect(None))
-
-    def _stagger_cards(self) -> None:
-        for i, card in enumerate(getattr(self, "_settings_cards", [])):
-            effect = QGraphicsOpacityEffect(card)
-            effect.setOpacity(0.0)
-            card.setGraphicsEffect(effect)
-
-            def make(e=effect, c=card):
-                def run():
-                    animate(c, "stagger", 0.0, 1.0,
-                            lambda v: e.setOpacity(float(v)),
-                            duration=260, easing=QEasingCurve.OutCubic,
-                            finished=lambda: c.setGraphicsEffect(None))
-                return run
-            QTimer.singleShot(40 * i, make())
 
     def _animate_height(self, target_h: int, duration: int = Motion.WINDOW) -> None:
         start = self.height()
@@ -686,10 +623,8 @@ class MainWindow(QWidget):
         available = screen.availableGeometry().height() if screen else 900
         return max(560, min(880, available - 80)) + SHADOW_PAD * 2
 
-    def _toast(self, text: str, tone: str = "info",
-               duration: int = 2400) -> None:
-        # float above the footer buttons instead of covering them
-        Toast.push(self.shell, text, tone, duration, offset_bottom=58)
+    def _notify(self, text: str, tone: str = "info", duration: int = 2600) -> None:
+        InfoBar.push(self.shell, text, tone, duration)
 
     # ==================================================================
     # system tray
@@ -727,7 +662,6 @@ class MainWindow(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
-        self._fade_in(self)
 
     def _hide_to_tray(self):
         self.hide()
@@ -765,6 +699,20 @@ class MainWindow(QWidget):
         self.hide()
         QApplication.instance().quit()
         sys.exit(0)
+
+    # ==================================================================
+    # theme
+    # ==================================================================
+
+    def _on_theme_change(self, _index: int):
+        mode = self.theme_combo.currentData() or MODE_SYSTEM
+        ui = self.config_manager.get_ui_config()
+        ui["theme_mode"] = mode
+        self.config_manager.save_ui_config(ui)
+        app = QApplication.instance()
+        if app is not None:
+            set_theme_mode(mode, app)
+        self.update()
 
     # ==================================================================
     # hotkey
@@ -810,7 +758,7 @@ class MainWindow(QWidget):
         mod_str = self._hotkey_mod_combo.currentText()
         key_str = self._hotkey_key_combo.currentText()
         self._hotkey_label.setText(
-            f"\u4e00\u6b21\u6027\u7ffb\u8bd1\u5feb\u6377\u952e  "
+            f"\u4e00\u6b21\u6027\u7ffb\u8bd1\u5feb\u6377\u952e\uff1a"
             f"{mod_str} + {key_str}")
         ui = self.config_manager.get_ui_config()
         ui["once_hotkey_mod"] = mod_str
@@ -841,7 +789,11 @@ class MainWindow(QWidget):
         self._settings_visible = False
         self._load_into_controls(tp, ui)
 
-        # hotkey selectors
+        self.theme_combo.blockSignals(True)
+        index = self.theme_combo.findData(ui.get("theme_mode", MODE_SYSTEM))
+        self.theme_combo.setCurrentIndex(max(0, index))
+        self.theme_combo.blockSignals(False)
+
         mod_str = ui.get("once_hotkey_mod", DEFAULT_HOTKEY_MOD)
         key_str = ui.get("once_hotkey_key", DEFAULT_HOTKEY_KEY)
         self._hotkey_mod_combo.blockSignals(True)
@@ -855,7 +807,8 @@ class MainWindow(QWidget):
         self._hotkey_mod_combo.blockSignals(False)
         self._hotkey_key_combo.blockSignals(False)
         self._hotkey_label.setText(
-            f"\u4e00\u6b21\u6027\u7ffb\u8bd1\u5feb\u6377\u952e  {mod_str} + {key_str}")
+            f"\u4e00\u6b21\u6027\u7ffb\u8bd1\u5feb\u6377\u952e\uff1a"
+            f"{mod_str} + {key_str}")
 
         if ui.get("show_redbox", False):
             r = self.config_manager.load_region()
@@ -907,11 +860,12 @@ class MainWindow(QWidget):
 
     @staticmethod
     def _region_text(region: dict) -> str:
-        return (f"{region['width']} x {region['height']}  "
-                f"@ ({region['x']}, {region['y']})")
+        return (f"{region['width']} \u00d7 {region['height']}   "
+                f"({region['x']}, {region['y']})")
 
     def _save_ui(self):
-        self.config_manager.save_ui_config({
+        ui = self.config_manager.get_ui_config()
+        ui.update({
             "show_mask": self.mask_check.isChecked(),
             "show_boxes": self.boxes_check.isChecked(),
             "show_redbox": self.redbox_check.isChecked(),
@@ -921,7 +875,9 @@ class MainWindow(QWidget):
             "once_display_seconds": self._s_once_display.value(),
             "once_hotkey_mod": self._hotkey_mod_combo.currentText(),
             "once_hotkey_key": self._hotkey_key_combo.currentText(),
+            "theme_mode": self.theme_combo.currentData() or MODE_SYSTEM,
         })
+        self.config_manager.save_ui_config(ui)
 
     # ==================================================================
     # settings interactions
@@ -954,14 +910,14 @@ class MainWindow(QWidget):
     def _on_test_connection(self):
         key = self.api_key_input.text().strip()
         if not key:
-            self._toast("\u8bf7\u5148\u8f93\u5165 API \u5bc6\u94a5", "warn")
+            self._notify("\u8bf7\u5148\u8f93\u5165 API \u5bc6\u94a5", "warn")
             QMessageBox.warning(self, "\u68c0\u67e5\u8fde\u901a\u6027",
                                 "\u8bf7\u5148\u8f93\u5165API\u5bc6\u94a5")
             return
 
-        self.test_btn.set_busy(True)
-        self.test_btn.setText("\u68c0\u67e5\u4e2d")
+        self.test_ring.show()
         self.test_btn.setEnabled(False)
+        self.test_btn.setText("\u68c0\u67e5\u4e2d")
         QApplication.instance().processEvents()
         try:
             import importlib
@@ -970,43 +926,37 @@ class MainWindow(QWidget):
             client = dsc.DeepSeekClient(api_key=key)
             result = client.translate("test")
             if result.get("translation") and not result.get("error"):
-                self.test_btn.set_variant("success")
                 self.test_btn.setText("\u8fde\u63a5\u6210\u529f")
-                self._toast("\u2713  DeepSeek API \u8fde\u63a5\u6210\u529f",
-                            "success")
+                self._notify("\u2713  DeepSeek API \u8fde\u63a5\u6210\u529f",
+                             "success")
             else:
-                self.test_btn.set_variant("danger")
                 self.test_btn.setText("\u8fde\u63a5\u5931\u8d25")
-                self._toast("\u8fde\u63a5\u5931\u8d25\uff1a"
-                            f"{result.get('error', 'Unknown')}", "error", 3600)
+                self._notify("\u8fde\u63a5\u5931\u8d25\uff1a"
+                             f"{result.get('error', 'Unknown')}", "error", 3600)
                 QMessageBox.critical(self, "\u8fde\u63a5\u5931\u8d25",
                                      f"API\u9519\u8bef: "
                                      f"{result.get('error', 'Unknown')}")
         except Exception as e:
-            self.test_btn.set_variant("danger")
             self.test_btn.setText("\u8fde\u63a5\u5931\u8d25")
-            self._toast(f"\u8fde\u63a5\u5f02\u5e38\uff1a{str(e)[:40]}", "error",
-                        3600)
+            self._notify(f"\u8fde\u63a5\u5f02\u5e38\uff1a{str(e)[:40]}", "error",
+                         3600)
             QMessageBox.critical(self, "\u8fde\u63a5\u5931\u8d25", str(e))
         finally:
-            self.test_btn.set_busy(False)
+            self.test_ring.hide()
             self.test_btn.setEnabled(True)
             QTimer.singleShot(
-                2600, lambda: (self.test_btn.set_variant("ghost"),
-                               self.test_btn.setText("\u68c0\u67e5\u8fde\u901a\u6027")))
+                2600, lambda: self.test_btn.setText("\u68c0\u67e5\u8fde\u901a\u6027"))
 
     def _on_toggle_settings(self):
         self._settings_visible = not self._settings_visible
-
         if self._settings_visible:
             self.stack.setCurrentIndex(1)
             self._animate_height(self._settings_height())
-            self._stagger_cards()
-            self.settings_btn.setText("\u2039  \u8fd4\u56de")
+            self.settings_btn.setText("\u8fd4\u56de")
         else:
             self.stack.setCurrentIndex(0)
             self._animate_height(HOME_H + SHADOW_PAD * 2)
-            self.settings_btn.setText("\u2699  \u8bbe\u7f6e")
+            self.settings_btn.setText("\u8bbe\u7f6e")
 
     # ==================================================================
     # pipeline control
@@ -1031,21 +981,19 @@ class MainWindow(QWidget):
             self._pipeline.overlay.show_boxes = self.boxes_check.isChecked()
 
             self.start_btn.setText("\u505c\u6b62\u7ffb\u8bd1")
-            self.start_btn.set_variant("danger")
-            self.hero.set_active(True)
-            self.status_pill.set_state("\u8fd0\u884c\u4e2d", "running")
+            self.start_btn.set_variant("standard")
+            self.status_badge.set_state("\u8fd0\u884c\u4e2d", "running")
             self._fps_timer.start(500)
             self.region_btn.setEnabled(False)
             self._update_tray_menu()
-            self._toast("\u25b6  \u5df2\u5f00\u59cb\u5b9e\u65f6\u7ffb\u8bd1", "success")
+            self._notify("\u5df2\u5f00\u59cb\u5b9e\u65f6\u7ffb\u8bd1", "success")
 
     def _stop_all(self):
         if self._pipeline:
             self._pipeline.stop()
         self.start_btn.setText("\u5f00\u59cb\u7ffb\u8bd1")
-        self.start_btn.set_variant("primary")
-        self.hero.set_active(False)
-        self.status_pill.set_state("\u5c31\u7eea", "idle")
+        self.start_btn.set_variant("accent")
+        self.status_badge.set_state("\u5c31\u7eea", "idle")
         self._fps_timer.stop()
         self.region_btn.setEnabled(True)
         self._update_tray_menu()
@@ -1061,7 +1009,7 @@ class MainWindow(QWidget):
         self.once_btn.setEnabled(False)
         self.once_btn.set_busy(True)
         self.once_btn.setText("\u7ffb\u8bd1\u4e2d")
-        self.status_pill.set_state("\u4e00\u6b21\u6027\u7ffb\u8bd1\u4e2d", "busy")
+        self.status_badge.set_state("\u4e00\u6b21\u6027\u7ffb\u8bd1\u4e2d", "busy")
 
         if self._pipeline is None:
             self._init_pipeline()
@@ -1069,13 +1017,11 @@ class MainWindow(QWidget):
             self._set_once_done("\u6a21\u578b\u52a0\u8f7d\u5931\u8d25", "error")
             return
 
-        # stop the continuous loop so it cannot overwrite our results
         self._once_was_running = self._pipeline.is_running
         if self._once_was_running:
             self._pipeline.stop()
             self.start_btn.setText("\u5f00\u59cb\u7ffb\u8bd1")
-            self.start_btn.set_variant("primary")
-            self.hero.set_active(False)
+            self.start_btn.set_variant("accent")
             self._fps_timer.stop()
             self.region_btn.setEnabled(True)
 
@@ -1118,8 +1064,8 @@ class MainWindow(QWidget):
                 self._pipeline._overlay.show_ocr = False
                 self._set_once_done(
                     f"\u7ffb\u8bd1\u5b8c\u6210 \u00b7 {len(trans)} \u6761", "ok")
-                self._toast(
-                    f"\u2713  \u7ffb\u8bd1\u5b8c\u6210\uff0c{len(trans)} \u6761\u7ed3\u679c",
+                self._notify(
+                    f"\u7ffb\u8bd1\u5b8c\u6210\uff0c{len(trans)} \u6761\u7ed3\u679c",
                     "success")
             elif ocr:
                 self._pipeline._overlay.set_ocr_results(ocr)
@@ -1127,19 +1073,20 @@ class MainWindow(QWidget):
                 self._pipeline._overlay.show_translation = False
                 self._set_once_done(
                     f"OCR \u5b8c\u6210 \u00b7 {len(ocr)} \u6761", "ok")
-                self._toast(f"\u2713  \u8bc6\u522b\u5b8c\u6210\uff0c{len(ocr)} \u6761\u6587\u5b57",
-                            "success")
+                self._notify(
+                    f"\u8bc6\u522b\u5b8c\u6210\uff0c{len(ocr)} \u6761\u6587\u5b57",
+                    "success")
             elif boxes:
                 self._pipeline._overlay.show_ocr = False
                 self._pipeline._overlay.show_translation = False
                 self._set_once_done(
                     f"\u68c0\u6d4b\u5230 {len(boxes)} \u4e2a\u6587\u5b57\u533a\u57df",
                     "ok")
-                self._toast(f"\u68c0\u6d4b\u5230 {len(boxes)} \u4e2a\u6587\u5b57\u533a\u57df",
-                            "info")
+                self._notify(f"\u68c0\u6d4b\u5230 {len(boxes)} \u4e2a\u6587\u5b57\u533a\u57df",
+                             "info")
             else:
                 self._set_once_done("\u672a\u68c0\u6d4b\u5230\u6587\u5b57", "ready")
-                self._toast("\u672a\u68c0\u6d4b\u5230\u6587\u5b57", "warn")
+                self._notify("\u672a\u68c0\u6d4b\u5230\u6587\u5b57", "warn")
 
             self._chip_boxes.set_value(len(boxes))
             self._chip_trans.set_value(self._pipeline.trans_count)
@@ -1161,7 +1108,7 @@ class MainWindow(QWidget):
         self._update_tray_menu()
 
     def _set_once_done(self, text: str, state: str) -> None:
-        self.status_pill.set_state(text, state)
+        self.status_badge.set_state(text, state)
         self.once_btn.setText("\u4e00\u6b21\u6027\u7ffb\u8bd1")
         self.once_btn.set_busy(False)
         self.once_btn.setEnabled(True)
@@ -1185,15 +1132,13 @@ class MainWindow(QWidget):
         if self.redbox_check.isChecked():
             self._overlay.set_test_visible(True)
         self.show()
-        self._fade_in(self)
-        self._toast(
-            f"\u5df2\u8bbe\u7f6e\u7ffb\u8bd1\u533a\u57df  {region['width']} x "
+        self._notify(
+            f"\u5df2\u8bbe\u7f6e\u7ffb\u8bd1\u533a\u57df  {region['width']} \u00d7 "
             f"{region['height']}", "info")
 
     def _on_region_cancel(self):
         self._selector = None
         self.show()
-        self._fade_in(self)
 
     # ---- overlay toggles -------------------------------------------------
 
@@ -1233,7 +1178,7 @@ class MainWindow(QWidget):
         self._pipeline_inited = True
         from detection.detection_pipeline import DetectionPipeline
 
-        self.status_pill.set_state("\u52a0\u8f7d\u6a21\u578b", "busy")
+        self.status_badge.set_state("\u52a0\u8f7d\u6a21\u578b", "busy")
         self.start_btn.setEnabled(False)
         self.once_btn.setEnabled(False)
         self.start_btn.set_busy(True)
@@ -1243,15 +1188,15 @@ class MainWindow(QWidget):
             self._pipeline = DetectionPipeline(
                 self.config_manager, target_fps=self._s_fps.value())
             if self._pipeline.detector.is_loaded:
-                self.status_pill.set_state("\u5c31\u7eea", "idle")
+                self.status_badge.set_state("\u5c31\u7eea", "idle")
             else:
-                self.status_pill.set_state("\u6a21\u578b\u52a0\u8f7d\u5931\u8d25",
-                                           "error")
+                self.status_badge.set_state("\u6a21\u578b\u52a0\u8f7d\u5931\u8d25",
+                                            "error")
                 self._pipeline = None
                 self._pipeline_inited = False
         except Exception as e:
             logger.error(f"Pipeline init failed: {e}")
-            self.status_pill.set_state("\u9519\u8bef", "error")
+            self.status_badge.set_state("\u9519\u8bef", "error")
             self._pipeline = None
             self._pipeline_inited = False
         finally:
@@ -1272,7 +1217,7 @@ class MainWindow(QWidget):
         self._chip_boxes.set_value(len(boxes))
         self._chip_trans.set_value(trans_count)
         mode = "\u9759\u6001" if static else "\u52a8\u6001"
-        self.status_pill.set_state(f"{mode} \u8bc6\u522b\u4e2d", "running")
+        self.status_badge.set_state(f"{mode} \u8bc6\u522b\u4e2d", "running")
         self._update_tray_menu()
 
     # ==================================================================

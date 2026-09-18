@@ -33,6 +33,7 @@ out3.txt
 # UI preview renders (tools/ui_preview.py)
 _ui_preview/
 _ui_preview*/
+_ui_fluent/
 
 # IDE
 .vscode/
