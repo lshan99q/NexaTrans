@@ -1,18 +1,33 @@
-﻿"""
-NexaTrans - Selector Window
-Full-screen transparent region selection window with mouse drag interaction.
+# -*- coding: utf-8 -*-
+"""
+NexaTrans - Region Selector  (Windows 11 Fluent)
+
+Full-screen dimmed overlay used to pick the translation region, styled after
+the Windows 11 Snipping Tool: crosshair, accent selection frame with resize
+handles, live size chip and a Fluent hint card.
+
+Interaction is unchanged: drag with the left mouse button, ESC to cancel.
 """
 
 import logging
-from PySide6.QtWidgets import QWidget, QApplication
-from PySide6.QtCore import Qt, Signal, QRect, QTimer
-from PySide6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QFontMetrics
+
+from PySide6.QtCore import QEasingCurve, QPoint, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import (
+    QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen,
+)
+from PySide6.QtWidgets import QApplication, QWidget
+
+from ui.theme import (
+    Radius, qc, rounded_path, scale_alpha, theme, ui_font,
+)
 
 logger = logging.getLogger("NexaTrans.Selector")
 
+MIN_SIZE = 10
+
 
 class SelectorWindow(QWidget):
-    """Full-screen transparent overlay for mouse region selection."""
+    """Full-screen overlay for mouse region selection."""
 
     region_selected = Signal(dict)
     cancelled = Signal()
@@ -21,22 +36,31 @@ class SelectorWindow(QWidget):
         super().__init__()
         self.overlay_config = overlay_config or {"opacity": 0.5, "border": True}
 
-        self._start_point = None
-        self._end_point = None
+        self._start_point: QPoint | None = None
+        self._end_point: QPoint | None = None
         self._is_selecting = False
+        self._cursor_pos = QPoint(0, 0)
+        self._intro = 0.0
+        self._handles = 0.0
+        self._too_small = 0.0
+
+        self._anim_timer = QTimer(self)
+        self._anim_timer.setInterval(16)
+        self._anim_timer.timeout.connect(self._tick)
 
         self._setup_window()
         self._show_fullscreen()
 
         QTimer.singleShot(50, self._force_topmost)
-
+        self._anim_timer.start()
         logger.info("Selection window created and fullscreen")
 
+    # ------------------------------------------------------------------
+    # window plumbing (unchanged behaviour)
+    # ------------------------------------------------------------------
+
     def _setup_window(self):
-        """Configure window attributes."""
-        self.setWindowFlags(
-            Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
-        )
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating, False)
         self.setMouseTracking(True)
@@ -44,7 +68,6 @@ class SelectorWindow(QWidget):
         self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
 
     def _show_fullscreen(self):
-        """Show fullscreen on primary screen."""
         screen = QApplication.primaryScreen()
         if screen:
             geo = screen.geometry()
@@ -52,13 +75,11 @@ class SelectorWindow(QWidget):
             logger.info(f"Fullscreen: {geo.width()}x{geo.height()}")
         else:
             self.setGeometry(0, 0, 1920, 1080)
-
         self.show()
         self.raise_()
         self.activateWindow()
 
     def _force_topmost(self):
-        """Force window to top after event loop starts."""
         self.raise_()
         self.activateWindow()
 
@@ -67,45 +88,67 @@ class SelectorWindow(QWidget):
         self.raise_()
         self.activateWindow()
 
-    # ---- Mouse events ----
+    # ------------------------------------------------------------------
+    # animation
+    # ------------------------------------------------------------------
+
+    def _tick(self):
+        if self._intro < 1.0:
+            self._intro = min(1.0, self._intro + 0.10)
+        target = 1.0 if self._is_selecting else 0.0
+        if abs(self._handles - target) > 0.01:
+            self._handles += (target - self._handles) * 0.30
+        if self._too_small > 0.0:
+            self._too_small = max(0.0, self._too_small - 0.035)
+        self.update()
+
+    # ------------------------------------------------------------------
+    # mouse / keyboard
+    # ------------------------------------------------------------------
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             pos = event.position().toPoint()
             self._start_point = pos
             self._end_point = pos
+            self._cursor_pos = pos
             self._is_selecting = True
+            self._too_small = 0.0
             self.update()
 
     def mouseMoveEvent(self, event):
+        pos = event.position().toPoint()
+        self._cursor_pos = pos
         if self._is_selecting:
-            self._end_point = event.position().toPoint()
-            self.update()
+            self._end_point = pos
+        self.update()
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton and self._is_selecting:
-            self._is_selecting = False
-            self._end_point = event.position().toPoint()
+        if event.button() != Qt.LeftButton or not self._is_selecting:
+            return
+        self._is_selecting = False
+        self._end_point = event.position().toPoint()
 
-            if self._start_point is None:
-                return
+        if self._start_point is None:
+            return
 
-            x = min(self._start_point.x(), self._end_point.x())
-            y = min(self._start_point.y(), self._end_point.y())
-            w = abs(self._start_point.x() - self._end_point.x())
-            h = abs(self._start_point.y() - self._end_point.y())
+        rect = self._selection_rect()
+        if rect.width() < MIN_SIZE or rect.height() < MIN_SIZE:
+            logger.warning(f"Region too small: {rect.width()}x{rect.height()}")
+            self._start_point = None
+            self._end_point = None
+            self._too_small = 1.0
+            self.update()
+            return
 
-            if w < 10 or h < 10:
-                logger.warning(f"Region too small: {w}x{h}")
-                self._start_point = None
-                self._end_point = None
-                self.update()
-                return
-
-            region = {"x": x, "y": y, "width": w, "height": h}
-            logger.info(f"Region selected: {region}")
-            self.region_selected.emit(region)
-            self.close()
+        # ints only: the region is fed straight into QWidget.setGeometry()
+        region = {"x": int(round(rect.x())), "y": int(round(rect.y())),
+                  "width": int(round(rect.width())),
+                  "height": int(round(rect.height()))}
+        logger.info(f"Region selected: {region}")
+        self._anim_timer.stop()
+        self.region_selected.emit(region)
+        self.close()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
@@ -113,109 +156,187 @@ class SelectorWindow(QWidget):
             self._start_point = None
             self._end_point = None
             self._is_selecting = False
+            self._anim_timer.stop()
             self.cancelled.emit()
             self.close()
 
-    # ---- Paint ----
+    def _selection_rect(self):
+        if self._start_point is None or self._end_point is None:
+            return None
+        x1 = min(self._start_point.x(), self._end_point.x())
+        y1 = min(self._start_point.y(), self._end_point.y())
+        x2 = max(self._start_point.x(), self._end_point.x())
+        y2 = max(self._start_point.y(), self._end_point.y())
+        return QRectF(x1, y1, x2 - x1, y2 - y1)
+
+    # ------------------------------------------------------------------
+    # painting
+    # ------------------------------------------------------------------
 
     def paintEvent(self, event):
+        t = theme()
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.TextAntialiasing, True)
 
-        win_w = self.width()
-        win_h = self.height()
+        win_w, win_h = self.width(), self.height()
+        rect = self._selection_rect()
+        active = rect is not None and rect.width() > 0 and rect.height() > 0
 
-        if self._start_point is not None and self._end_point is not None:
-            x1 = min(self._start_point.x(), self._end_point.x())
-            y1 = min(self._start_point.y(), self._end_point.y())
-            x2 = max(self._start_point.x(), self._end_point.x())
-            y2 = max(self._start_point.y(), self._end_point.y())
-
-            if x2 > x1 and y2 > y1:
-                # Dark overlay around selection
-                painter.fillRect(0, 0, win_w, y1, QColor(0, 0, 0, 140))
-                painter.fillRect(0, y2, win_w, win_h - y2, QColor(0, 0, 0, 140))
-                painter.fillRect(0, y1, x1, y2 - y1, QColor(0, 0, 0, 140))
-                painter.fillRect(x2, y1, win_w - x2, y2 - y1, QColor(0, 0, 0, 140))
-
-                # Red border
-                pen = QPen(QColor(220, 40, 40), 2)
-                painter.setPen(pen)
-                painter.setBrush(Qt.NoBrush)
-                painter.drawRect(x1, y1, x2 - x1, y2 - y1)
-
-                # Corner markers
-                cs = 6
-                hcs = cs // 2
-                painter.setPen(Qt.NoPen)
-                painter.setBrush(QColor(220, 40, 40))
-                painter.drawRect(x1 - hcs, y1 - hcs, cs, cs)
-                painter.drawRect(x2 - hcs, y1 - hcs, cs, cs)
-                painter.drawRect(x1 - hcs, y2 - hcs, cs, cs)
-                painter.drawRect(x2 - hcs, y2 - hcs, cs, cs)
-
-                # Size label
-                self._draw_size_tag(painter, x1, y1, x2 - x1, y2 - y1)
-            else:
-                painter.fillRect(0, 0, win_w, win_h, QColor(0, 0, 0, 140))
-                self._draw_instructions(painter, win_w, win_h)
-        else:
-            painter.fillRect(0, 0, win_w, win_h, QColor(0, 0, 0, 140))
-            self._draw_instructions(painter, win_w, win_h)
-
-    def _draw_size_tag(self, painter, x, y, w, h):
-        """Draw size label near selection."""
-        font = QFont("Microsoft YaHei", 13, QFont.Bold)
-        painter.setFont(font)
-        text = f"{w} x {h}"
-        fm = QFontMetrics(font)
-        tw = fm.horizontalAdvance(text)
-        th = fm.height()
-
-        lx = x
-        ly = y - 12
-        if ly - th < 0:
-            ly = y + 12 + th
-
-        painter.setBrush(QColor(0, 0, 0, 160))
-        painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(lx - 6, ly - th + 2, tw + 12, th + 6, 3, 3)
-
-        painter.setPen(QColor(255, 255, 255))
-        painter.drawText(lx, ly, text)
-
-    def _draw_instructions(self, painter, win_w, win_h):
-        """Draw operation hints at screen center."""
-        font = QFont("Microsoft YaHei", 20, QFont.Bold)
-        painter.setFont(font)
-
-        lines = [
-            "拖动鼠标框选翻译区域",
-            "按 ESC 取消",
-        ]
-        fm = QFontMetrics(font)
-        cx = win_w // 2
-        cy = win_h // 2
-
-        for i, line in enumerate(lines):
-            tw = fm.horizontalAdvance(line)
-            tx = cx - tw // 2
-            ty = cy + i * 50
-
-            painter.setBrush(QColor(0, 0, 0, 130))
+        # ---- backdrop -------------------------------------------------
+        if active:
+            path = QPainterPath()
+            path.setFillRule(Qt.OddEvenFill)
+            path.addRect(QRectF(0, 0, win_w, win_h))
+            path.addRect(rect)
             painter.setPen(Qt.NoPen)
-            painter.drawRoundedRect(
-                tx - 20, ty - fm.ascent() - 10,
-                tw + 40, fm.height() + 20, 10, 10
-            )
+            painter.setBrush(qc(t.smoke, int(qc(t.smoke).alpha() * self._intro)))
+            painter.drawPath(path)
+            self._draw_selection(painter, rect)
+        else:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(qc(t.smoke, int(qc(t.smoke).alpha() * self._intro)))
+            painter.drawRect(0, 0, win_w, win_h)
+            self._draw_crosshair(painter, win_w, win_h)
+            self._draw_hint_card(painter, win_w, win_h)
 
-            if i == 0:
-                painter.setPen(QColor(255, 255, 255))
-            else:
-                painter.setPen(QColor(200, 200, 200))
+        if self._too_small > 0.0:
+            self._draw_too_small(painter, win_w, win_h)
 
-            painter.drawText(tx, ty + fm.ascent() // 2, line)
+    # -- idle -----------------------------------------------------------
+
+    def _draw_crosshair(self, painter, win_w, win_h):
+        t = theme()
+        x, y = self._cursor_pos.x(), self._cursor_pos.y()
+        if x <= 0 and y <= 0:
+            return
+        pen = QPen(qc(t.text, int(90 * self._intro)), 1.0, Qt.DashLine)
+        painter.setPen(pen)
+        painter.drawLine(0, y, win_w, y)
+        painter.drawLine(x, 0, x, win_h)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(qc(t.text, int(200 * self._intro)))
+        painter.drawEllipse(QPoint(x, y), 2.5, 2.5)
+
+    def _draw_hint_card(self, painter, win_w, win_h):
+        t = theme()
+        title = "\u62d6\u52a8\u9f20\u6807\u6846\u9009\u7ffb\u8bd1\u533a\u57df"
+        sub = "ESC \u53d6\u6d88   \u00b7   \u677e\u5f00\u9f20\u6807\u786e\u8ba4"
+
+        title_font = ui_font(18, QFont.DemiBold, display=True)
+        sub_font = ui_font(13)
+        painter.setFont(title_font)
+        t_w = QFontMetrics(title_font).horizontalAdvance(title)
+        painter.setFont(sub_font)
+        s_w = QFontMetrics(sub_font).horizontalAdvance(sub)
+
+        card_w = max(t_w, s_w) + 64
+        card_h = 92
+        cx = (win_w - card_w) / 2.0
+        cy = win_h / 2.0 - card_h / 2.0 - 30 - (1.0 - self._intro) * 20
+
+        card = QRectF(cx, cy, card_w, card_h)
+        alpha = self._intro
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(scale_alpha(t.flyout, alpha))
+        painter.drawPath(rounded_path(card, Radius.CARD))
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(qc(t.card_stroke), 1.0))
+        painter.drawPath(rounded_path(card.adjusted(0.5, 0.5, -0.5, -0.5),
+                                      Radius.CARD - 0.5))
+
+        painter.setPen(scale_alpha(t.text, alpha))
+        painter.setFont(title_font)
+        painter.drawText(QRectF(card.left(), card.top() + 20, card.width(), 26),
+                         Qt.AlignCenter, title)
+
+        painter.setPen(scale_alpha(t.text_secondary, alpha))
+        painter.setFont(sub_font)
+        painter.drawText(QRectF(card.left(), card.top() + 52, card.width(), 20),
+                         Qt.AlignCenter, sub)
+
+    # -- selecting ------------------------------------------------------
+
+    def _draw_selection(self, painter, rect: QRectF):
+        t = theme()
+        accent = qc(t.accent)
+
+        # accent frame (Snipping Tool uses a 2px accent outline)
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(accent, 2.0))
+        painter.drawRect(rect.adjusted(1, 1, -1, -1))
+
+        # resize handles fade in while dragging
+        if self._handles > 0.05:
+            size = 9.0 * self._handles
+            half = size / 2.0
+            points = [
+                (rect.left(), rect.top()), (rect.center().x(), rect.top()),
+                (rect.right(), rect.top()), (rect.right(), rect.center().y()),
+                (rect.right(), rect.bottom()), (rect.center().x(), rect.bottom()),
+                (rect.left(), rect.bottom()), (rect.left(), rect.center().y()),
+            ]
+            for px, py in points:
+                box = QRectF(px - half, py - half, size, size)
+                painter.setPen(QPen(accent, 1.0))
+                painter.setBrush(QColor(255, 255, 255))
+                painter.drawRect(box)
+
+        self._draw_size_chip(painter, rect)
+
+    def _draw_size_chip(self, painter, rect: QRectF):
+        t = theme()
+        text = f"{int(rect.width())} \u00d7 {int(rect.height())}"
+        font = ui_font(13, QFont.DemiBold)
+        painter.setFont(font)
+        fm = QFontMetrics(font)
+        bw, bh = fm.horizontalAdvance(text) + 22, 28
+
+        bx = rect.left()
+        by = rect.bottom() + 8
+        if by + bh > self.height() - 6:
+            by = rect.top() - bh - 8
+        if by < 6:
+            by = rect.bottom() + 8
+        bx = min(bx, self.width() - bw - 6)
+        bx = max(bx, 6)
+
+        chip = QRectF(bx, by, bw, bh)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(qc(t.flyout, 240))
+        painter.drawPath(rounded_path(chip, Radius.CONTROL))
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(qc(t.card_stroke), 1.0))
+        painter.drawPath(rounded_path(chip.adjusted(0.5, 0.5, -0.5, -0.5),
+                                      Radius.CONTROL - 0.5))
+        painter.setPen(qc(t.text))
+        painter.drawText(chip, Qt.AlignCenter, text)
+
+    def _draw_too_small(self, painter, win_w, win_h):
+        t = theme()
+        level = self._too_small          # 0..1 fade factor
+        text = "\u533a\u57df\u592a\u5c0f\uff0c\u8bf7\u91cd\u65b0\u6846\u9009"
+        font = ui_font(14, QFont.DemiBold)
+        painter.setFont(font)
+        fm = QFontMetrics(font)
+        bw = fm.horizontalAdvance(text) + 44
+        badge = QRectF((win_w - bw) / 2, win_h / 2 - 24, bw, 48)
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(scale_alpha(t.flyout, level))
+        painter.drawPath(rounded_path(badge, Radius.CARD))
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(scale_alpha(t.critical, level), 1.0))
+        painter.drawPath(rounded_path(badge.adjusted(0.5, 0.5, -0.5, -0.5),
+                                      Radius.CARD - 0.5))
+        painter.setPen(scale_alpha(t.text, level))
+        painter.drawText(badge, Qt.AlignCenter, text)
 
     def closeEvent(self, event):
+        try:
+            self._anim_timer.stop()
+        except RuntimeError:
+            pass
         logger.info("Selection window closed")
         super().closeEvent(event)

@@ -69,6 +69,8 @@ hidden_imports = [
     "translation.translation_manager", "translation.translation_worker",
     "translation.cache",
     "ui", "ui.main_window", "ui.selector_window", "ui.region_overlay",
+    "ui.theme", "ui.widgets", "ui.widgets.anim", "ui.widgets.buttons",
+    "ui.widgets.containers", "ui.widgets.controls", "ui.widgets.feedback",
 ]
 hidden_imports.extend(paddlex_hidden)
 hidden_imports.extend(paddleocr_hidden)

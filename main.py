@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-NexaTrans v1.2.1
+NexaTrans v1.3.0
 Application entry: logging, exceptions, initialization.
 """
 
@@ -55,7 +55,7 @@ def setup_logging():
         logger.addHandler(console_handler)
 
     logger.info("=" * 50)
-    logger.info("NexaTrans v1.2.1 Startup")
+    logger.info("NexaTrans v1.3.0 Startup")
     logger.info(f"Log: {LOG_FILE}")
     logger.info("=" * 50)
     return logger
@@ -115,8 +115,17 @@ def main():
 
         app = QApplication(sys.argv)
         app.setApplicationName("NexaTrans")
-        app.setApplicationVersion("1.2.1")
+        app.setApplicationVersion("1.3.0")
         app.setOrganizationName("NexaTrans")
+
+        # Windows 11 Fluent UI: install fonts + the theme style sheet before
+        # any widget is created so native dialogs/menus match the app theme.
+        # MainWindow re-applies the theme saved in the config afterwards.
+        try:
+            from ui.theme import apply_app_theme
+            apply_app_theme(app)
+        except Exception as theme_error:      # never block startup on styling
+            logger.warning(f"Theme setup failed: {theme_error}")
 
         config_manager = ConfigManager()
         window = MainWindow(config_manager)

@@ -1,35 +1,58 @@
+# -*- coding: utf-8 -*-
 """
-NexaTrans - Region Overlay
-常驻区域测试框：在屏幕指定位置显示红色边框，帮助用户确认所选区域
+NexaTrans - Region Overlay  (Windows 11 Fluent)
+
+Resident, click-through frame marking the active translation region: a 2px
+accent outline with resize-style handles and a small size chip, matching the
+Windows 11 Snipping Tool / screen-capture indicators.
 """
 
 import logging
-from PySide6.QtWidgets import QWidget, QApplication
-from PySide6.QtCore import Qt, QRect, QTimer
-from PySide6.QtGui import QPainter, QPen, QColor, QBrush
+
+from PySide6.QtCore import QRectF, Qt, QTimer
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+from PySide6.QtWidgets import QWidget
+
+from ui.theme import Radius, qc, rounded_path, theme, ui_font
 
 logger = logging.getLogger("NexaTrans.RegionOverlay")
 
 
 class RegionOverlay(QWidget):
-    """常驻区域测试框（透明置顶窗口，只显示红色边框）"""
+    """Resident region frame (transparent, always on top, click-through)."""
+
+    MARGIN = 5          # transparent padding that hosts the outer glow
 
     def __init__(self):
         super().__init__()
         self._region = {"x": 0, "y": 0, "width": 0, "height": 0}
         self._visible = False
+        self._pulse = 0.0
+        self._dir = 1
 
         self.setWindowFlags(
-            Qt.FramelessWindowHint |
-            Qt.WindowStaysOnTopHint |
-            Qt.Tool
+            Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)  # 鼠标穿透
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
 
+        self._timer = QTimer(self)
+        self._timer.setInterval(40)
+        self._timer.timeout.connect(self._tick)
+
+    # ------------------------------------------------------------------
+
+    def _tick(self):
+        self._pulse += 0.035 * self._dir
+        if self._pulse >= 1.0:
+            self._pulse, self._dir = 1.0, -1
+        elif self._pulse <= 0.0:
+            self._pulse, self._dir = 0.0, 1
+        self.update()
+
     def update_region(self, region: dict):
-        """更新区域并调整窗口位置和大小"""
+        """Update the region and resize/reposition the window."""
         self._region = region
         x = region.get("x", 0)
         y = region.get("y", 0)
@@ -37,11 +60,10 @@ class RegionOverlay(QWidget):
         h = region.get("height", 0)
 
         if w > 0 and h > 0:
-            # 设置窗口位置和大小恰好覆盖所选区域
-            self.setGeometry(x - 2, y - 2, w + 4, h + 4)
-            logger.debug(f"测试框更新: ({x},{y}) {w}x{h}")
+            self.setGeometry(x - self.MARGIN, y - self.MARGIN,
+                             w + self.MARGIN * 2, h + self.MARGIN * 2)
+            logger.debug(f"Region overlay updated: ({x},{y}) {w}x{h}")
             self.update()
-
             if self._visible and not self.isVisible():
                 self.show()
                 self.raise_()
@@ -49,40 +71,83 @@ class RegionOverlay(QWidget):
             self.hide()
 
     def set_test_visible(self, visible: bool):
-        """设置测试框可见性"""
         self._visible = visible
         region = self._region
         if visible and region.get("width", 0) > 0 and region.get("height", 0) > 0:
             self.show()
             self.raise_()
-            logger.info("测试框已显示")
+            self._timer.start()
+            logger.info("Region overlay shown")
         else:
+            self._timer.stop()
             self.hide()
-            logger.info("测试框已隐藏")
+            logger.info("Region overlay hidden")
+
+    def hideEvent(self, event):
+        self._timer.stop()
+        super().hideEvent(event)
+
+    # ------------------------------------------------------------------
 
     def paintEvent(self, event):
-        """绘制红色边框"""
+        t = theme()
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.TextAntialiasing, True)
 
-        rect = self.rect()
+        inset = self.MARGIN - 1.0
+        rect = QRectF(self.rect()).adjusted(inset, inset, -inset, -inset)
+        if rect.width() <= 4 or rect.height() <= 4:
+            return
 
-        # 红色边框（2px 宽，边框绘制在窗口内边界）
-        pen = QPen(QColor(220, 40, 40, 220), 2)
-        painter.setPen(pen)
+        accent = qc(t.accent)
+
+        # soft accent halo so the marker stays noticeable over bright content
+        halo = QColor(accent)
+        halo.setAlpha(int(22 + 26 * self._pulse))
         painter.setBrush(Qt.NoBrush)
-        painter.drawRect(2, 2, rect.width() - 4, rect.height() - 4)
+        painter.setPen(QPen(halo, 3.0))
+        painter.drawRect(rect.adjusted(-2, -2, 2, 2))
 
-        # 四角标记
-        cs = 5
+        # accent frame
+        painter.setPen(QPen(accent, 2.0))
+        painter.drawRect(rect)
+
+        # corner handles
+        size = 9.0
+        half = size / 2.0
+        painter.setPen(QPen(accent, 1.0))
+        painter.setBrush(QColor(255, 255, 255))
+        for px, py in ((rect.left(), rect.top()), (rect.right(), rect.top()),
+                       (rect.left(), rect.bottom()), (rect.right(), rect.bottom())):
+            painter.drawRect(QRectF(px - half, py - half, size, size))
+
+        self._draw_chip(painter, rect)
+
+    def _draw_chip(self, painter, rect: QRectF):
+        t = theme()
+        region = self._region
+        text = (f"{region.get('width', 0)} \u00d7 {region.get('height', 0)}")
+        font = ui_font(12, QFont.DemiBold)
+        painter.setFont(font)
+        fm = QFontMetrics(font)
+        bw, bh = fm.horizontalAdvance(text) + 20, 24
+
+        if rect.width() < bw + 12 or rect.height() < bh + 12:
+            return
+
+        chip = QRectF(rect.left() + 6, rect.top() + 6, bw, bh)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(220, 40, 40, 200))
-        w, h = rect.width(), rect.height()
-        painter.drawRect(2, 2, cs, cs)
-        painter.drawRect(w - 2 - cs, 2, cs, cs)
-        painter.drawRect(2, h - 2 - cs, cs, cs)
-        painter.drawRect(w - 2 - cs, h - 2 - cs, cs, cs)
+        painter.setBrush(qc(t.flyout, 235))
+        painter.drawPath(rounded_path(chip, Radius.CONTROL))
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(qc(t.card_stroke), 1.0))
+        painter.drawPath(rounded_path(chip.adjusted(0.5, 0.5, -0.5, -0.5),
+                                      Radius.CONTROL - 0.5))
+        painter.setPen(qc(t.text))
+        painter.drawText(chip, Qt.AlignCenter, text)
 
     def closeEvent(self, event):
-        logger.debug("测试框关闭")
+        self._timer.stop()
+        logger.debug("Region overlay closed")
         super().closeEvent(event)
