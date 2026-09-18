@@ -1,4 +1,4 @@
-﻿# NexaTrans v1.2
+# NexaTrans v1.2
 
 Real-time AI screen translation for games. Detects, recognizes, and translates on-screen text continuously or on-demand. Supports global hotkey for one-shot translation.
 
@@ -20,7 +20,61 @@ Screen → DBNet++ → Mask → PP-OCRv5 → DeepSeek → Overlay
 - All settings persisted across sessions
 - Configurable filters and FPS slider (1-30)
 - Translation count statistics
-- Dark themed Chinese UI
+- Animated dark UI (v2.0 "Aurora") - see [UI](#ui-v20-aurora) below
+
+## UI (v2.0 "Aurora")
+
+The interface was rebuilt around a small design system and an animated
+component kit. All v1.2 behaviour (tray, hotkeys, pipeline, config file
+format) is unchanged - only the presentation layer is new.
+
+**Look**: frameless translucent window with a custom title bar, rounded glass
+cards, a cyan/indigo gradient accent and a soft aurora glow in the corner.
+
+**Animation**
+
+| Element | Motion |
+|---------|--------|
+| Primary button | gradient hover, animated glow, press feedback, click ripple, busy spinner |
+| Settings transition | pages slide horizontally; the window height eases between views |
+| Settings cards | staggered fade-in on first open |
+| Toggle switches | eased knob travel with a gradient track |
+| Sliders | gradient fill, handle grows on hover/drag |
+| Metric chips | values count up to the new number |
+| Status pill | pulsing dot while detecting |
+| Region selector | animated marching-ants frame, corner brackets, live size badge, crosshair + spotlight |
+| Region overlay | breathing glow, marching ants, size chip |
+| Notifications | toasts slide up from the bottom instead of modal popups |
+
+**Layout**
+
+```
+ui/
+├── theme.py            design tokens, global QSS, cached soft shadows
+├── main_window.py      frameless shell, hero panel, settings page, tray
+├── selector_window.py  full-screen region picker
+├── region_overlay.py   resident region frame
+└── widgets/            reusable animated components
+    ├── anim.py         named-slot value animations
+    ├── buttons.py      GlowButton, IconButton
+    ├── controls.py     ToggleSwitch, NeonSlider
+    ├── containers.py   Card, LogoMark, TitleBar, SlideStack
+    └── feedback.py     StatusPill, StatChip, Toast, Spinner, form rows
+```
+
+`ToggleSwitch` and `NeonSlider` subclass `QCheckBox` / `QSlider`, so they keep
+the standard Qt API (`isChecked`, `setChecked`, `toggled`, `value`,
+`valueChanged`) and drop into existing code unchanged.
+
+### Previewing the UI headlessly
+
+Both tools render with the Qt `offscreen` platform, so no desktop is needed:
+
+```bash
+python tools/ui_preview.py   # renders every state to _ui_preview/*.png
+python tools/ui_smoke.py     # headless checks for the UI wiring
+```
+
 
 ## Quick Start
 
@@ -47,6 +101,15 @@ python main.pyw
 | Screen | mss |
 
 ## Changelog
+
+### v2.0 UI "Aurora" (unreleased)
+- New design system (`ui/theme.py`) + reusable animated widget kit (`ui/widgets/`)
+- Frameless translucent window with custom title bar, glass cards and gradient accents
+- Animated page transition between the home and settings views, with an eased window resize
+- Staggered card reveal, animated toggles/sliders, counting metric chips, pulsing status dot
+- Toast notifications replace several modal dialogs
+- Modernized region selector (marching ants, corner brackets, size badge) and region overlay
+- Fixed: one-shot display duration is now persisted (it was read but never saved)
 
 ### v1.2
 - One-shot translation: button, tray menu, global hotkey (Ctrl+Shift+T)

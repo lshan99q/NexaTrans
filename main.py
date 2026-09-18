@@ -118,6 +118,14 @@ def main():
         app.setApplicationVersion("1.2.1")
         app.setOrganizationName("NexaTrans")
 
+        # UI v2.0 "Aurora": install fonts + global stylesheet before any
+        # widget is created so native dialogs/menus match the app theme.
+        try:
+            from ui.theme import apply_app_theme
+            apply_app_theme(app)
+        except Exception as theme_error:      # never block startup on styling
+            logger.warning(f"Theme setup failed: {theme_error}")
+
         config_manager = ConfigManager()
         window = MainWindow(config_manager)
         window.show()
