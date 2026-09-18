@@ -93,6 +93,11 @@ class StatusBadge(QWidget):
         self._recalc()
 
     def set_state(self, text: str, state: str = "idle") -> None:
+        # Called from the live status timer: bail out when nothing changed so
+        # we do not resize/re-layout the header several times a second while
+        # the detection pipeline is competing for the GUI thread.
+        if text == self._text and state == self._state:
+            return
         self._state = state
         self._text = text
         self._recalc()

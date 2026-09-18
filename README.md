@@ -79,6 +79,30 @@ python tools/ui_preview.py   # every state, light + dark -> _ui_preview/*.png
 python tools/ui_smoke.py     # headless checks for the UI wiring
 ```
 
+### Measuring UI responsiveness
+
+`tools/ui_perf.py` runs the real pipeline against the local PaddleX models and
+reports how long the Qt event loop is blocked, using a 10 ms heartbeat - the
+largest gap between two heartbeats is the worst stall the user feels.
+
+```bash
+python tools/ui_perf.py 8 --force-change --profile
+```
+
+`--force-change` defeats the frame-diff optimisation so every tick runs real
+detection + OCR (the worst case: scrolling game content).  `--profile` breaks
+the GUI-thread cost down per stage.
+
+Measured on this machine (Ryzen-class CPU, ONNX Runtime 1.28, 640x200 region):
+
+| Phase | Worst GUI stall | Event-loop heartbeats |
+|-------|-----------------|-----------------------|
+| idle baseline | 12 ms | 80 / 80 |
+| model load (before) | **4700 ms** (frozen) | - |
+| model load (after) | **170-380 ms** once | 30+ ticks during the load |
+| pipeline running, inference on the GUI thread | **337 ms**, 33 stalls > 100 ms | 283 / 800 |
+| pipeline running, inference on a worker thread | **18 ms**, 0 stalls > 100 ms | 799 / 800 |
+
 
 ## Quick Start
 
@@ -105,6 +129,34 @@ python main.pyw
 | Screen | mss |
 
 ## Changelog
+
+### Fixes: responsiveness (unreleased)
+- **Removed the invisible border around the window.** The panel used to be
+  drawn inside a 16px transparent padding that hosted a drop shadow; that band
+  was part of the window, so it swallowed clicks on whatever was behind it and
+  travelled with the app when dragged.  The window rect is now exactly the
+  visible UI.
+- **Model loading no longer freezes the app.** `DBNetDetector` and
+  `PaddleOCREngine` were built on the GUI thread (4.7 s of complete freeze on
+  start-up).  Both are pure Python/ONNX with no Qt dependency, so they are now
+  built on a worker thread; only the pipeline object (which owns an overlay
+  widget) is created on the GUI thread afterwards.  Worst stall during loading:
+  4700 ms -> 170-380 ms, and the window keeps animating and stays draggable.
+- **Detection no longer blocks the GUI thread.** `detector.detect()` measured
+  94 ms mean / 354 ms max per call and ran on the GUI thread every tick.
+  Inference now runs on a single-worker pool and the results are applied
+  through a queued Qt signal.  With inference forced on every frame: worst
+  stall 337 ms -> 18 ms, event-loop heartbeats 283/800 -> 799/800, stalls over
+  100 ms 33 -> 0.
+- **Fixed Qt widget calls from a worker thread.** The async translation
+  thread called `TextOverlay.set_trans_results()` and `_update_overlay_display()`
+  directly; touching widgets outside the GUI thread is undefined behaviour and
+  showed up as random freezes when a translation completed.  Both now go
+  through queued signals.
+- Reduced UI-side churn while translating (status badge no longer re-lays out
+  when its text is unchanged, metric tiles update without animation on the
+  periodic tick, status poll 500 -> 800 ms).
+- Added `tools/ui_perf.py` to measure GUI stalls with the real models.
 
 ### UI: Windows 11 Fluent (unreleased)
 - Replaced the neon "Aurora" skin with the Windows 11 / WinUI 3 design system

@@ -423,6 +423,11 @@ def shadow_pixmap(width: int, height: int, radius: int, blur: int,
     """
     Cached gaussian shadow for a rounded rect of ``width`` x ``height``.
     The pixmap is padded by ``blur * 2`` on every side.
+
+    Not used by the main window: padding a translucent window to host a shadow
+    leaves an invisible band around the app that swallows desktop clicks.  It
+    is kept for a click-through shadow overlay window (a separate, transparent
+    window placed behind the app so the padding belongs to nobody).
     """
     key = (width, height, radius, blur, str(color), alpha, offset_y)
     cached = _shadow_cache.get(key)

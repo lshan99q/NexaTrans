@@ -16,6 +16,7 @@ import ctypes
 import logging
 import os
 import sys
+import threading
 
 from PySide6.QtCore import (
     QAbstractNativeEventFilter, QEasingCurve, QPointF, QRectF, Qt, QTimer,
@@ -34,8 +35,7 @@ from ui.selector_window import SelectorWindow
 from ui.region_overlay import RegionOverlay
 from ui.theme import (
     MODE_DARK, MODE_LABELS, MODE_LIGHT, MODE_SYSTEM, Motion, Radius, Space,
-    apply_app_theme, is_dark, qc, rounded_path, set_theme_mode, shadow_pixmap,
-    theme, ui_font,
+    apply_app_theme, qc, rounded_path, set_theme_mode, theme, ui_font,
 )
 from ui.widgets.anim import animate
 from ui.widgets.buttons import FluentButton, IconButton
@@ -95,9 +95,13 @@ HOTKEY_KEYS = [chr(i) for i in range(ord("A"), ord("Z") + 1)] + \
                "F10", "F11", "F12"]
 
 # ---- geometry ----
+# There is deliberately NO transparent padding around the panel: the window
+# rect is exactly the visible UI.  A padded translucent window would sit on
+# top of the desktop as an invisible band that swallows clicks and travels
+# with the app when it is dragged.
 WINDOW_W = 452
 HOME_H = 486
-SHADOW_PAD = 16
+SHADOW_PAD = 0
 APP_VERSION = "v1.2.1"
 
 # ---- optional DWM integration (rounded corners / dark caption) ----
@@ -190,6 +194,11 @@ class MainWindow(QWidget):
         self._pipeline_inited = False
         self._once_was_running = False
         self._settings_built = False
+        self._loading = False
+        self._pending_action = None      # "start" / "once" queued behind loading
+        self._load_result = None
+        self._load_timer = QTimer(self)
+        self._load_timer.timeout.connect(self._poll_model_load)
 
         app = QApplication.instance()
         if app is not None:
@@ -269,12 +278,6 @@ class MainWindow(QWidget):
         panel = QRectF(self.rect()).adjusted(pad, pad, -pad, -pad)
         radius = Radius.WINDOW
 
-        # soft drop shadow (Win11 windows have a fairly wide, soft shadow)
-        shadow = shadow_pixmap(int(panel.width()), int(panel.height()),
-                               radius, 16, t.shadow, t.shadow_alpha, 6)
-        painter.drawPixmap(int(panel.left()) - 32, int(panel.top()) - 32,
-                           shadow)
-
         # Mica-like material: base gradient + two very soft tint blobs
         path = rounded_path(panel, radius)
         grad = QLinearGradient(panel.topLeft(), panel.bottomLeft())
@@ -334,6 +337,9 @@ class MainWindow(QWidget):
         headline.setProperty("role", "subtitle")
         head.addWidget(headline)
         head.addStretch(1)
+        self.load_ring = ProgressRing(18)
+        self.load_ring.hide()
+        head.addWidget(self.load_ring, 0, Qt.AlignVCenter)
         self.status_badge = StatusBadge("\u5c31\u7eea", "idle")
         head.addWidget(self.status_badge, 0, Qt.AlignVCenter)
         hero.add(head)
@@ -621,7 +627,7 @@ class MainWindow(QWidget):
     def _settings_height(self) -> int:
         screen = QApplication.primaryScreen()
         available = screen.availableGeometry().height() if screen else 900
-        return max(560, min(880, available - 80)) + SHADOW_PAD * 2
+        return max(560, min(880, available - 80))
 
     def _notify(self, text: str, tone: str = "info", duration: int = 2600) -> None:
         InfoBar.push(self.shell, text, tone, duration)
@@ -955,7 +961,7 @@ class MainWindow(QWidget):
             self.settings_btn.setText("\u8fd4\u56de")
         else:
             self.stack.setCurrentIndex(0)
-            self._animate_height(HOME_H + SHADOW_PAD * 2)
+            self._animate_height(HOME_H)
             self.settings_btn.setText("\u8bbe\u7f6e")
 
     # ==================================================================
@@ -970,8 +976,9 @@ class MainWindow(QWidget):
 
     def _start_all(self):
         if self._pipeline is None:
+            # models are still loading (or not loaded yet): queue the start
+            self._pending_action = "start"
             self._init_pipeline()
-        if self._pipeline is None:
             return
         if self._pipeline.start():
             self._pipeline.set_fps(self._s_fps.value())
@@ -983,7 +990,7 @@ class MainWindow(QWidget):
             self.start_btn.setText("\u505c\u6b62\u7ffb\u8bd1")
             self.start_btn.set_variant("standard")
             self.status_badge.set_state("\u8fd0\u884c\u4e2d", "running")
-            self._fps_timer.start(500)
+            self._fps_timer.start(800)
             self.region_btn.setEnabled(False)
             self._update_tray_menu()
             self._notify("\u5df2\u5f00\u59cb\u5b9e\u65f6\u7ffb\u8bd1", "success")
@@ -1012,7 +1019,15 @@ class MainWindow(QWidget):
         self.status_badge.set_state("\u4e00\u6b21\u6027\u7ffb\u8bd1\u4e2d", "busy")
 
         if self._pipeline is None:
+            # models load in the background; _poll_model_load resumes us
+            self._pending_action = "once"
             self._init_pipeline()
+            return
+
+        self._run_once_translate()
+
+    def _run_once_translate(self):
+        """One-shot capture/detect/translate, run once the pipeline is ready."""
         if self._pipeline is None:
             self._set_once_done("\u6a21\u578b\u52a0\u8f7d\u5931\u8d25", "error")
             return
@@ -1173,37 +1188,107 @@ class MainWindow(QWidget):
     # ---- pipeline init ---------------------------------------------------
 
     def _init_pipeline(self):
+        """
+        Kick off model loading **without blocking the GUI thread**.
+
+        ``DBNetDetector`` and ``PaddleOCREngine`` take seconds to build their
+        ONNX/PaddleX predictors and used to be constructed right here, which
+        froze the window (and its spinner) until they finished.  Neither has a
+        Qt dependency, so they are built on a worker thread; the pipeline
+        object itself owns an overlay widget and is therefore still created on
+        the GUI thread, once the models are ready.
+        """
         if self._pipeline_inited:
             return
         self._pipeline_inited = True
-        from detection.detection_pipeline import DetectionPipeline
 
-        self.status_badge.set_state("\u52a0\u8f7d\u6a21\u578b", "busy")
-        self.start_btn.setEnabled(False)
-        self.once_btn.setEnabled(False)
-        self.start_btn.set_busy(True)
-        self.start_btn.setText("\u52a0\u8f7d\u6a21\u578b")
-        QApplication.instance().processEvents()
-        try:
-            self._pipeline = DetectionPipeline(
-                self.config_manager, target_fps=self._s_fps.value())
-            if self._pipeline.detector.is_loaded:
-                self.status_badge.set_state("\u5c31\u7eea", "idle")
-            else:
-                self.status_badge.set_state("\u6a21\u578b\u52a0\u8f7d\u5931\u8d25",
-                                            "error")
-                self._pipeline = None
-                self._pipeline_inited = False
-        except Exception as e:
-            logger.error(f"Pipeline init failed: {e}")
-            self.status_badge.set_state("\u9519\u8bef", "error")
+        want_ocr = self.ocr_check.isChecked()
+        result = {"done": False, "detector": None, "ocr": None, "error": None}
+        self._load_result = result
+        self._set_loading(True)
+
+        def work():
+            try:
+                from detection.dbnet_detector import DBNetDetector
+                result["detector"] = DBNetDetector(limit_side_len=960)
+            except Exception as exc:                       # noqa: BLE001
+                logger.error(f"Detector load failed: {exc}", exc_info=True)
+                result["error"] = exc
+                result["done"] = True
+                return
+            if want_ocr:
+                try:
+                    from ocr.paddleocr_engine import PaddleOCREngine
+                    result["ocr"] = PaddleOCREngine(lang="ch")
+                except Exception as exc:                   # noqa: BLE001
+                    # OCR is optional - the pipeline runs without it
+                    logger.error(f"OCR load failed: {exc}", exc_info=True)
+            result["done"] = True
+
+        threading.Thread(target=work, daemon=True,
+                         name="NexaTrans-model-loader").start()
+        self._load_timer.start(80)
+
+    def _set_loading(self, loading: bool) -> None:
+        self._loading = loading
+        self.load_ring.setVisible(loading)
+        self.start_btn.set_busy(loading)
+        self.start_btn.setEnabled(not loading)
+        self.once_btn.setEnabled(not loading)
+        if loading:
+            self.start_btn.setText("\u52a0\u8f7d\u6a21\u578b")
+            self.status_badge.set_state("\u52a0\u8f7d\u6a21\u578b", "busy")
+        else:
+            self.start_btn.setText("\u5f00\u59cb\u7ffb\u8bd1")
+
+    def _poll_model_load(self):
+        """GUI-thread poll for the worker started by :meth:`_init_pipeline`."""
+        result = self._load_result
+        if not result or not result.get("done"):
+            return
+        self._load_timer.stop()
+        self._load_result = None
+
+        detector = result["detector"]
+        failed = (result["error"] is not None or detector is None
+                  or not getattr(detector, "is_loaded", False))
+        if failed:
+            logger.error("Model load finished without a usable detector")
             self._pipeline = None
             self._pipeline_inited = False
-        finally:
-            self.start_btn.set_busy(False)
-            self.start_btn.setText("\u5f00\u59cb\u7ffb\u8bd1")
-            self.start_btn.setEnabled(True)
-            self.once_btn.setEnabled(True)
+            self._set_loading(False)
+            self.status_badge.set_state("\u6a21\u578b\u52a0\u8f7d\u5931\u8d25",
+                                        "error")
+            pending, self._pending_action = self._pending_action, None
+            if pending == "once":
+                self._set_once_done("\u6a21\u578b\u52a0\u8f7d\u5931\u8d25", "error")
+            return
+
+        try:
+            from detection.detection_pipeline import DetectionPipeline
+            self._pipeline = DetectionPipeline(
+                self.config_manager, target_fps=self._s_fps.value(),
+                detector=detector, ocr_engine=result["ocr"])
+        except Exception as exc:                           # noqa: BLE001
+            logger.error(f"Pipeline init failed: {exc}", exc_info=True)
+            self._pipeline = None
+            self._pipeline_inited = False
+            self._set_loading(False)
+            self.status_badge.set_state("\u9519\u8bef", "error")
+            pending, self._pending_action = self._pending_action, None
+            if pending == "once":
+                self._set_once_done("\u6a21\u578b\u52a0\u8f7d\u5931\u8d25", "error")
+            return
+
+        self._set_loading(False)
+        self.status_badge.set_state("\u5c31\u7eea", "idle")
+        logger.info("Pipeline ready")
+
+        pending, self._pending_action = self._pending_action, None
+        if pending == "start":
+            self._start_all()
+        elif pending == "once":
+            self._run_once_translate()
 
     def _update_status(self):
         if not self._pipeline or not self._pipeline.is_running:
@@ -1213,9 +1298,9 @@ class MainWindow(QWidget):
         static = getattr(self._pipeline, "is_static", True)
         trans_count = getattr(self._pipeline, "trans_count", 0)
 
-        self._chip_fps.set_value(self._pipeline.fps)
-        self._chip_boxes.set_value(len(boxes))
-        self._chip_trans.set_value(trans_count)
+        self._chip_fps.set_value(self._pipeline.fps, animate_change=False)
+        self._chip_boxes.set_value(len(boxes), animate_change=False)
+        self._chip_trans.set_value(trans_count, animate_change=False)
         mode = "\u9759\u6001" if static else "\u52a8\u6001"
         self.status_badge.set_state(f"{mode} \u8bc6\u522b\u4e2d", "running")
         self._update_tray_menu()

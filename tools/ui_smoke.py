@@ -12,7 +12,9 @@ Usage:
 import os
 import sys
 import tempfile
+import threading
 import time
+import types
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -20,7 +22,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from PySide6.QtCore import QEvent, QPointF, Qt                        # noqa: E402
+from PySide6.QtCore import QEvent, QPointF, Qt, QTimer                 # noqa: E402
 from PySide6.QtGui import QKeyEvent, QMouseEvent                      # noqa: E402
 from PySide6.QtWidgets import QApplication                           # noqa: E402
 
@@ -182,6 +184,96 @@ def main() -> int:
               config.get_ui_config().get("theme_mode") == MODE_LIGHT,
               str(config.get_ui_config().get("theme_mode")))
         set_theme_mode(MODE_SYSTEM, app)
+
+        print("\nwindow geometry (no invisible border)")
+        from ui.main_window import HOME_H, SHADOW_PAD, WINDOW_W
+        check("no transparent padding constant", SHADOW_PAD == 0, str(SHADOW_PAD))
+        check("window matches the visible panel width",
+              window.width() == WINDOW_W, f"{window.width()} vs {WINDOW_W}")
+        check("window matches the visible panel height",
+              window.height() == HOME_H, f"{window.height()} vs {HOME_H}")
+        check("shell fills the window rect (nothing hidden around it)",
+              window.shell.geometry() == window.rect(),
+              f"shell={window.shell.geometry()} window={window.rect()}")
+
+        print("\nmodel loading (must not freeze the GUI thread)")
+        fake_module = types.ModuleType("detection.dbnet_detector")
+        gui_thread_name = threading.main_thread().name
+
+        class SlowDetector:
+            """Stands in for the ONNX/PaddleX predictors (seconds to build)."""
+
+            DETECT_BOX = [[10, 10, 100, 10, 100, 40, 10, 40]]
+
+            def __init__(self, limit_side_len=960):
+                self.thread = threading.current_thread().name
+                self.detect_threads = set()
+                self.is_loaded = True
+                time.sleep(0.45)
+
+            def detect(self, img):
+                self.detect_threads.add(threading.current_thread().name)
+                return {"boxes": list(self.DETECT_BOX), "scores": [0.95]}
+
+        fake_module.DBNetDetector = SlowDetector
+        sys.modules["detection.dbnet_detector"] = fake_module
+
+        window._s_fps.setValue(20)
+        window.trans_check.setChecked(False)
+        window.ocr_check.setChecked(False)
+        window._pipeline = None
+        window._pipeline_inited = False
+
+        ticks = []
+        probe = QTimer()
+        probe.setInterval(15)
+        probe.timeout.connect(lambda: ticks.append(time.time()))
+        probe.start()
+
+        began = time.time()
+        window.start_btn.click()            # what the user does: press 开始翻译
+        deadline = time.time() + 3.0
+        while time.time() < deadline and window._pipeline is None:
+            app.processEvents()
+            time.sleep(0.002)
+        elapsed = time.time() - began
+        probe.stop()
+
+        check("a queued start loads the models in the background",
+              window._pipeline is not None, f"{elapsed:.2f}s")
+        check("event loop kept ticking while models loaded", len(ticks) >= 8,
+              f"{len(ticks)} timer ticks over {elapsed:.2f}s")
+        check("detector was built off the GUI thread",
+              getattr(window._pipeline.detector, "thread", gui_thread_name)
+              != gui_thread_name,
+              getattr(window._pipeline.detector, "thread", "?"))
+        check("queued start ran once loading finished",
+              window._pipeline.is_running)
+
+        # the detection result must still reach the overlay through the
+        # worker-thread -> queued-signal path.  (Enabling the mask performs one
+        # synchronous detect at start-up, so only the periodic loop is checked.)
+        window._pipeline.detector.detect_threads.clear()
+        window._pipeline._frame_changed = lambda img: True
+        window._pipeline._sent_boxes = None
+        window._pipeline._sent_has_mask = None
+        deadline = time.time() + 3.0
+        while (time.time() < deadline
+               and not window._pipeline.detector.detect_threads):
+            app.processEvents()
+            time.sleep(0.002)
+        check("async detection result reaches the overlay",
+              window._pipeline._sent_boxes == SlowDetector.DETECT_BOX,
+              str(window._pipeline._sent_boxes))
+        loop_threads = set(window._pipeline.detector.detect_threads)
+        check("periodic inference runs off the GUI thread",
+              loop_threads and gui_thread_name not in loop_threads,
+              str(loop_threads))
+
+        window._stop_all()
+        check("stop returns the button to 开始翻译",
+              window.start_btn.text() == "\u5f00\u59cb\u7ffb\u8bd1",
+              window.start_btn.text())
 
         print("\nregion selector")
         from ui.selector_window import SelectorWindow
