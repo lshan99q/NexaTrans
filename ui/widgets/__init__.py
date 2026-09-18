@@ -4,7 +4,8 @@
 from ui.theme import (
     DARK, LIGHT, MODE_DARK, MODE_LIGHT, MODE_LABELS, MODE_SYSTEM, Motion,
     Radius, Space, Tokens, apply_app_theme, current_mode, is_dark, mix, qc,
-    qss, rounded_path, set_theme_mode, shadow_pixmap, theme, ui_font,
+    qss, rounded_path, scale_alpha, set_theme_mode, shadow_pixmap, theme,
+    ui_font,
 )
 from ui.widgets.anim import animate, stop_animation
 from ui.widgets.buttons import CaptionButton, FluentButton, IconButton
@@ -22,6 +23,7 @@ __all__ = [
     "MODE_SYSTEM", "MODE_LIGHT", "MODE_DARK", "MODE_LABELS",
     "theme", "set_theme_mode", "apply_app_theme", "current_mode", "is_dark",
     "qc", "qss", "mix", "ui_font", "rounded_path", "shadow_pixmap",
+    "scale_alpha",
     # animation
     "animate", "stop_animation",
     # widgets

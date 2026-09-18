@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 )                                                                 # noqa: E402
 
 from config.config_manager import ConfigManager                   # noqa: E402
-from ui.main_window import MainWindow, SHADOW_PAD                 # noqa: E402
+from ui.main_window import HOME_H, MainWindow                        # noqa: E402
 from ui.theme import (                                            # noqa: E402
     MODE_DARK, MODE_LIGHT, apply_app_theme, qc, set_theme_mode, theme,
 )
@@ -118,7 +118,7 @@ def make_config() -> ConfigManager:
 def widget_gallery(app) -> None:
     """A sheet showing every custom control in its resting/mixed states."""
     gallery = Surface()
-    gallery.setFixedSize(430, 350)
+    gallery.setFixedSize(430, 470)
     gl = QVBoxLayout(gallery)
     gl.setContentsMargins(16, 16, 16, 16)
     gl.setSpacing(12)
@@ -161,6 +161,19 @@ def widget_gallery(app) -> None:
     card.add(row3)
     gl.addWidget(card)
 
+    from ui.widgets.containers import SettingsRow
+    hover_card = Card("Settings rows")
+    normal_row = SettingsRow("\u663e\u793a\u68c0\u6d4b\u6846",
+                             "\u6807\u51fa\u68c0\u6d4b\u5230\u7684\u6587\u5b57\u4f4d\u7f6e",
+                             ToggleSwitch())
+    hovered_row = SettingsRow("\u663e\u793a\u533a\u57df\u8fb9\u6846",
+                              "\u6807\u51fa\u5f53\u524d\u7ffb\u8bd1\u533a\u57df\u7684\u8303\u56f4",
+                              ToggleSwitch())
+    hovered_row._hover = 1.0          # simulate the pointer being over the row
+    hover_card.add(normal_row)
+    hover_card.add(hovered_row)
+    gl.addWidget(hover_card)
+
     stats = QHBoxLayout()
     stats.setSpacing(8)
     for cap, val in (("FPS", "58"), ("\u8bc6\u522b\u6846", "12"),
@@ -189,7 +202,7 @@ def main() -> int:
         set_theme_mode(mode, app)
         window._settings_visible = False
         window.stack.setCurrentIndex(0, False)
-        window.setFixedHeight(486 + SHADOW_PAD * 2)
+        window.setFixedHeight(HOME_H)
         window.settings_btn.setText("\u8bbe\u7f6e")
         pump(app, 300)
         print(f"\n[{mode}]")
@@ -198,7 +211,7 @@ def main() -> int:
         # running state
         window.start_btn.setText("\u505c\u6b62\u7ffb\u8bd1")
         window.start_btn.set_variant("standard")
-        window.status_badge.set_state("\u9759\u6001 \u8bc6\u522b\u4e2d", "running")
+        window.status_badge.set_state("\u8fd0\u884c\u4e2d", "running")
         window.region_btn.setEnabled(False)
         window._chip_fps.set_value(58, animate_change=False)
         window._chip_boxes.set_value(12, animate_change=False)
@@ -206,8 +219,8 @@ def main() -> int:
         pump(app, 220)
         shoot(window, os.path.join(OUT, f"home_running_{mode}.png"))
 
-        InfoBar.push(window.shell, "\u7ffb\u8bd1\u5b8c\u6210\uff0c12 \u6761\u7ed3\u679c",
-                     "success", 60000)
+        window._notify("\u7ffb\u8bd1\u5b8c\u6210\uff0c12 \u6761\u7ed3\u679c",
+                       "success", 60000)
         pump(app, 420)
         shoot(window, os.path.join(OUT, f"infobar_{mode}.png"))
 

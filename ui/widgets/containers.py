@@ -10,7 +10,7 @@ NexaTrans - Fluent (Windows 11) containers.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEasingCurve, QPoint, QRectF, Qt, Signal
+from PySide6.QtCore import QEasingCurve, QPoint, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QColor, QFont, QPainter, QPainterPath, QPen, QRegion,
 )
@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui.theme import (
-    Motion, Radius, Space, mix, qc, rounded_path, theme, ui_font,
+    Motion, Radius, Space, mix, qc, rounded_path, scale_alpha, theme, ui_font,
 )
 from ui.widgets.anim import animate, stop_animation
 from ui.widgets.buttons import CaptionButton
@@ -128,10 +128,16 @@ class Card(QFrame):
 
 
 class SettingsRow(QWidget):
-    """A Win11 settings row: title + description on the left, control right."""
+    """
+    A Win11 settings row: title + description on the left, control on the right.
 
-    def __init__(self, title: str, description: str = "", control: QWidget | None = None,
-                 parent=None):
+    When the control is a toggle (``control.toggleable``) the whole row is
+    clickable, matching Windows 11 Settings - a much bigger target than the
+    40x20 switch itself.
+    """
+
+    def __init__(self, title: str, description: str = "",
+                 control: QWidget | None = None, parent=None):
         super().__init__(parent)
         self.setMinimumHeight(56)
         layout = QHBoxLayout(self)
@@ -143,18 +149,70 @@ class SettingsRow(QWidget):
         label = QLabel(title)
         label.setProperty("role", "body")
         column.addWidget(label)
+        self.title_label = label
+
+        self.description_label: QLabel | None = None
         if description:
-            desc = QLabel(description)
-            desc.setProperty("role", "caption")
-            desc.setWordWrap(True)
-            column.addWidget(desc)
+            self.description_label = QLabel(description)
+            self.description_label.setProperty("role", "caption")
+            self.description_label.setWordWrap(True)
+            column.addWidget(self.description_label)
         layout.addLayout(column, 1)
 
+        self.control = control
         if control is not None:
             layout.addWidget(control, 0, Qt.AlignVCenter)
 
-        self.title_label = label
-        self.control = control
+        self._row_toggle = control if getattr(control, "toggleable", False) \
+            else None
+        # only toggle rows highlight: a slider row already gives its own
+        # feedback, and the highlight is what advertises the bigger hit area
+        self._hoverable = self._row_toggle is not None
+        self._hover = 0.0
+        self.setAttribute(Qt.WA_Hover, self._hoverable)
+
+    def enterEvent(self, event):
+        if self._hoverable:
+            animate(self, "row_hover", self._hover, 1.0,
+                    lambda v: (setattr(self, "_hover", float(v)), self.update()),
+                    duration=Motion.FAST, easing=QEasingCurve.OutCubic)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if self._hoverable:
+            animate(self, "row_hover", self._hover, 0.0,
+                    lambda v: (setattr(self, "_hover", float(v)), self.update()),
+                    duration=Motion.FAST, easing=QEasingCurve.OutCubic)
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        if self._hover <= 0.01:
+            return
+        t = theme()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = QRectF(self.rect()).adjusted(0, 2, 0, -2)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(scale_alpha(t.subtle_hover, self._hover))
+        painter.drawPath(rounded_path(rect, 6))
+
+    def set_description(self, text: str) -> None:
+        if self.description_label is not None:
+            self.description_label.setText(text)
+
+    def _hits_control(self, pos) -> bool:
+        control = self._row_toggle
+        if control is None:
+            return False
+        return QRect(control.mapTo(self, QPoint(0, 0)),
+                     control.size()).contains(pos)
+
+    def mouseReleaseEvent(self, event):
+        if (self._row_toggle is not None
+                and event.button() == Qt.LeftButton
+                and not self._hits_control(event.position().toPoint())):
+            self._row_toggle.toggle()
+        super().mouseReleaseEvent(event)
 
 
 class Divider(QFrame):

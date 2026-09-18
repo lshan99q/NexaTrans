@@ -72,6 +72,20 @@ def hexa(rgb_hex: str, alpha: int = 255) -> str:
     return f"#{alpha:02X}{c.red():02X}{c.green():02X}{c.blue():02X}"
 
 
+def scale_alpha(value, factor: float) -> QColor:
+    """
+    QColor whose *intrinsic* alpha is multiplied by ``factor`` (0..1).
+
+    Needed because most WinUI tokens already carry alpha (``subtle_hover`` is
+    ``#0FFFFFFF`` - a 6% white wash).  Passing an absolute alpha such as
+    ``qc(token, 255)`` would replace it and paint opaque black instead.
+    """
+    c = qc(value)
+    factor = max(0.0, min(1.0, factor))
+    c.setAlpha(max(0, min(255, int(round(c.alpha() * factor)))))
+    return c
+
+
 def mix(a, b, t: float) -> QColor:
     """Linear blend, ``t=0`` -> a, ``t=1`` -> b."""
     ca, cb = qc(a), qc(b)

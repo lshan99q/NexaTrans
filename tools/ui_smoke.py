@@ -24,10 +24,11 @@ if ROOT not in sys.path:
 
 from PySide6.QtCore import QEvent, QPointF, Qt, QTimer                 # noqa: E402
 from PySide6.QtGui import QKeyEvent, QMouseEvent                      # noqa: E402
-from PySide6.QtWidgets import QApplication                           # noqa: E402
+from PySide6.QtWidgets import QApplication, QWidget                   # noqa: E402
 
 from config.config_manager import ConfigManager                    # noqa: E402
 from ui.main_window import MainWindow                              # noqa: E402
+from ui.widgets.controls import ToggleSwitch                       # noqa: E402
 from ui.theme import (                                             # noqa: E402
     MODE_DARK, MODE_LIGHT, MODE_SYSTEM, apply_app_theme, set_theme_mode,
     system_accent, system_theme_mode, theme,
@@ -99,8 +100,11 @@ def main() -> int:
         check("fps slider reflects config", window._s_fps.value() == 10)
         check("region label shows the stored region",
               "677" in window.region_info.text(), window.region_info.text())
-        check("hotkey label shows the stored hotkey",
-              "T" in window._hotkey_label.text(), window._hotkey_label.text())
+        check("hotkey selectors reflect the stored hotkey",
+              window._hotkey_mod_combo.currentText() == "Ctrl"
+              and window._hotkey_key_combo.currentText() == "T",
+              f"{window._hotkey_mod_combo.currentText()} + "
+              f"{window._hotkey_key_combo.currentText()}")
         knob_ok = all(
             (t._p > 0.5) == t.isChecked()
             for t in (window.mask_check, window.boxes_check,
@@ -158,11 +162,15 @@ def main() -> int:
         check("status badge idle state stops the pulse",
               not window.status_badge._timer.isActive())
 
-        bar = InfoBar.push(window.shell, "\u6d4b\u8bd5\u901a\u77e5", "info", 300)
+        bar = window._notify("\u6d4b\u8bd5\u901a\u77e5", "info", 300)
         pump(app, 200)
         check("info bar is visible", bar.isVisible())
-        check("info bar sits below the caption bar",
-              bar.y() >= 32, f"y={bar.y()}")
+        check("info bar is anchored low so it cannot hide the status badge",
+              bar.y() > window.height() // 2,
+              f"y={bar.y()} of window height {window.height()}")
+        check("info bar clears the footer",
+              bar.y() + bar.height() <= window.height() - 32,
+              f"bottom={bar.y() + bar.height()}")
         bar.dismiss()
         pump(app, 400)
         check("info bar dismissed itself", not bar.isVisible())
@@ -305,6 +313,99 @@ def main() -> int:
             dsc._load_env = real_load_env
             if probe is not None:
                 probe.cleanup()
+
+        print("\ntoggle hit area")
+        from PySide6.QtTest import QTest
+        from PySide6.QtCore import QPoint
+
+        probe_switch = ToggleSwitch()
+        probe_switch.show()
+        pump(app, 60)
+        QTest.mouseClick(probe_switch, Qt.LeftButton, Qt.NoModifier,
+                         QPoint(probe_switch.width() - 6,
+                                probe_switch.height() // 2))
+        pump(app, 60)
+        check("clicking the right edge of the switch toggles it",
+              probe_switch.isChecked(),
+              f"width={probe_switch.width()} clicked at "
+              f"x={probe_switch.width() - 6}")
+
+        QTest.mouseClick(probe_switch, Qt.LeftButton, Qt.NoModifier,
+                         QPoint(probe_switch.width() // 2,
+                                probe_switch.height() // 2))
+        pump(app, 60)
+        check("clicking the middle of the switch toggles it back",
+              not probe_switch.isChecked())
+        probe_switch.close()
+
+        from ui.widgets.containers import SettingsRow
+        row_switch = ToggleSwitch()
+        row = SettingsRow("\u6587\u5b57\u8bc6\u522b", "\u4ece\u622a\u56fe\u4e2d\u63d0\u53d6\u6587\u5b57",
+                          row_switch)
+        row.resize(340, 56)
+        row.show()
+        pump(app, 60)
+        QTest.mouseClick(row.title_label, Qt.LeftButton, Qt.NoModifier,
+                         QPoint(6, 6))
+        pump(app, 80)
+        check("clicking the row label toggles the switch",
+              row_switch.isChecked())
+        check("the row exposes its description label",
+              row.description_label is not None)
+        row.close()
+
+        print("\nhover fills keep their translucent alpha")
+        from PySide6.QtGui import QImage, QPainter
+        from ui.widgets.buttons import CaptionButton, IconButton
+
+        # WinUI hover tokens already carry alpha (subtle_hover is a ~6% wash).
+        # Passing an absolute alpha instead of scaling it painted opaque black
+        # - a huge, obvious difference from the un-hovered render.
+        holder = QWidget()
+        holder.resize(400, 200)
+
+        def render(widget, point):
+            image = QImage(widget.width(), widget.height(),
+                           QImage.Format_ARGB32_Premultiplied)
+            image.fill(Qt.transparent)
+            painter = QPainter(image)
+            widget.render(painter, QPoint(0, 0))
+            painter.end()
+            return image.pixelColor(*point)
+
+        hover_cases = (
+            ("icon button", IconButton("\u2039", 32), (16, 4)),
+            ("caption button min", CaptionButton(CaptionButton.MINIMIZE), (6, 16)),
+        )
+        for name, widget, point in hover_cases:
+            widget.setParent(holder)
+            widget._hover = 0.0
+            base = render(widget, point).lightness()
+            widget._hover = 1.0
+            hovered = render(widget, point).lightness()
+            check(f"{name} hover is a subtle wash, not opaque black",
+                  hovered > 20 and abs(hovered - base) < 40,
+                  f"lightness {base} -> {hovered}")
+
+        # the close button is the exception: Win11 fills it with #C42B1C
+        close_btn = CaptionButton(CaptionButton.CLOSE)
+        close_btn.setParent(holder)
+        close_btn._hover = 1.0
+        close_color = render(close_btn, (6, 16))
+        check("close caption button hover uses the Win11 red",
+              close_color.red() > 140 and close_color.green() < 90,
+              f"{close_color.name()}")
+
+        probe_row = SettingsRow("\u663e\u793a\u68c0\u6d4b\u6846", "", ToggleSwitch())
+        probe_row.setParent(holder)
+        probe_row.resize(300, 56)
+        probe_row._hover = 0.0
+        row_base = render(probe_row, (296, 28)).lightness()
+        probe_row._hover = 1.0
+        row_hovered = render(probe_row, (296, 28)).lightness()
+        check("settings row hover is a subtle wash, not opaque black",
+              row_hovered > 20 and abs(row_hovered - row_base) < 40,
+              f"lightness {row_base} -> {row_hovered}")
 
         print("\nregion selector")
         from ui.selector_window import SelectorWindow

@@ -246,19 +246,22 @@ class InfoBar(QWidget):
     """
 
     _active: "InfoBar | None" = None
-    TOP_MARGIN = 38        # below the 32px Win11 caption bar
+    HEIGHT = 44
+    TOP_MARGIN = 38        # default: just below the 32px Win11 caption bar
 
     def __init__(self, parent: QWidget, text: str, tone: str = "info",
-                 duration: int = 2600):
+                 duration: int = 2600, top_margin: int | None = None):
         super().__init__(parent)
         self._text = text
         self._tone = tone
         self._duration = duration
+        self._top_margin = (self.TOP_MARGIN if top_margin is None
+                            else top_margin)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.setFont(ui_font(13))
 
         width = max(180, parent.width() - 32)
-        self.setFixedSize(width, 44)
+        self.setFixedSize(width, self.HEIGHT)
 
         self._effect = QGraphicsOpacityEffect(self)
         self._effect.setOpacity(0.0)
@@ -270,14 +273,14 @@ class InfoBar(QWidget):
 
     @classmethod
     def push(cls, parent: QWidget, text: str, tone: str = "info",
-             duration: int = 2600) -> "InfoBar":
+             duration: int = 2600, top_margin: int | None = None) -> "InfoBar":
         previous = InfoBar._active
         if previous is not None:
             try:
                 previous.close()
             except RuntimeError:
                 pass
-        bar = cls(parent, text, tone, duration)
+        bar = cls(parent, text, tone, duration, top_margin)
         InfoBar._active = bar
         bar.start()
         return bar
@@ -287,7 +290,8 @@ class InfoBar(QWidget):
         if parent is None:
             return
         x = (parent.width() - self.width()) // 2
-        self._end_y = self.TOP_MARGIN
+        self._end_y = max(4, min(self._top_margin,
+                                 parent.height() - self.HEIGHT - 4))
         self.move(x, self._end_y - 18)
         self.show()
         self.raise_()

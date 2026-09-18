@@ -100,7 +100,7 @@ HOTKEY_KEYS = [chr(i) for i in range(ord("A"), ord("Z") + 1)] + \
 # top of the desktop as an invisible band that swallows clicks and travels
 # with the app when it is dragged.
 WINDOW_W = 452
-HOME_H = 486
+HOME_H = 448
 SHADOW_PAD = 0
 APP_VERSION = "v1.2.1"
 
@@ -353,13 +353,17 @@ class MainWindow(QWidget):
 
         action_row = QHBoxLayout()
         action_row.setSpacing(Space.SM)
-        self.once_btn = FluentButton("\u4e00\u6b21\u6027\u7ffb\u8bd1",
-                                     "standard", font_size=14)
+        self.once_btn = FluentButton("\u7ffb\u8bd1\u4e00\u6b21", "standard",
+                                     font_size=14)
         self.once_btn.setMinimumHeight(32)
         self.once_btn.setToolTip(
             "\u622a\u53d6\u5f53\u524d\u753b\u9762\u5e76\u7ffb\u8bd1\u4e00\u6b21")
         self.once_btn.clicked.connect(self._on_once_translate)
         action_row.addWidget(self.once_btn, 3)
+
+        hotkey_caption = QLabel("\u5feb\u6377\u952e")
+        hotkey_caption.setProperty("role", "caption")
+        action_row.addWidget(hotkey_caption, 0)
 
         self._hotkey_mod_combo = self._make_combo(list(MOD_MAP.keys()), 86)
         self._hotkey_mod_combo.currentTextChanged.connect(self._on_hotkey_change)
@@ -374,18 +378,13 @@ class MainWindow(QWidget):
         action_row.addWidget(self._hotkey_key_combo, 0)
         hero.add(action_row)
 
-        self._hotkey_label = QLabel("")
-        self._hotkey_label.setProperty("role", "caption")
-        self._hotkey_label.setAlignment(Qt.AlignCenter)
-        hero.add(self._hotkey_label)
-
         layout.addWidget(hero)
 
         # ---- live metrics ---------------------------------------------
         stats = QHBoxLayout()
         stats.setSpacing(Space.SM)
-        self._chip_fps = MetricTile("\u5e27\u7387 FPS", "0")
-        self._chip_boxes = MetricTile("\u8bc6\u522b\u6846", "0")
+        self._chip_fps = MetricTile("\u5e27\u7387", "0")
+        self._chip_boxes = MetricTile("\u6587\u5b57\u5757", "0")
         self._chip_trans = MetricTile("\u7ffb\u8bd1\u6b21\u6570", "0")
         for chip in (self._chip_fps, self._chip_boxes, self._chip_trans):
             stats.addWidget(chip, 1)
@@ -393,20 +392,19 @@ class MainWindow(QWidget):
 
         # ---- region ----------------------------------------------------
         region_card = Card()
-        self.region_btn = FluentButton("\u6846\u9009\u533a\u57df", "standard",
+        self.region_btn = FluentButton("\u9009\u62e9\u533a\u57df", "standard",
                                        font_size=14)
-        self.region_btn.setFixedWidth(104)
+        self.region_btn.setFixedWidth(96)
         self.region_btn.setMinimumHeight(32)
+        self.region_btn.setToolTip(
+            "\u5728\u5c4f\u5e55\u4e0a\u62d6\u51fa\u4e00\u4e2a\u8981\u7ffb\u8bd1\u7684\u533a\u57df")
         self.region_btn.clicked.connect(self._on_select_region)
 
-        self.region_info = QLabel("\u672a\u9009\u62e9")
-        self.region_info.setProperty("role", "caption")
-
         region_row = SettingsRow("\u7ffb\u8bd1\u533a\u57df",
-                                 "\u5f53\u524d\u7ffb\u8bd1\u533a\u57df\u8303\u56f4",
+                                 "\u5c1a\u672a\u9009\u62e9\u533a\u57df",
                                  self.region_btn)
+        self.region_info = region_row.description_label
         region_card.add(region_row)
-        region_card.add(self.region_info)
         layout.addWidget(region_card)
 
         layout.addStretch(1)
@@ -505,14 +503,14 @@ class MainWindow(QWidget):
         rows = [
             ("mask_check", "\u663e\u793a Mask \u906e\u7f69",
              "\u7528\u80cc\u666f\u8272\u76d6\u4f4f\u539f\u6587\u5b57"),
-            ("boxes_check", "\u663e\u793a\u7eff\u6846",
-             "\u6807\u51fa\u68c0\u6d4b\u5230\u7684\u6587\u5b57\u533a\u57df"),
-            ("redbox_check", "\u663e\u793a\u7ea2\u6846",
-             "\u6807\u51fa\u5f53\u524d\u7ffb\u8bd1\u533a\u57df\u8fb9\u754c"),
-            ("ocr_check", "\u542f\u7528 OCR \u8bc6\u522b",
+            ("boxes_check", "\u663e\u793a\u68c0\u6d4b\u6846",
+             "\u6807\u51fa\u68c0\u6d4b\u5230\u7684\u6587\u5b57\u4f4d\u7f6e"),
+            ("redbox_check", "\u663e\u793a\u533a\u57df\u8fb9\u6846",
+             "\u6807\u51fa\u5f53\u524d\u7ffb\u8bd1\u533a\u57df\u7684\u8303\u56f4"),
+            ("ocr_check", "\u6587\u5b57\u8bc6\u522b\uff08OCR\uff09",
              "\u4ece\u622a\u56fe\u4e2d\u63d0\u53d6\u6587\u5b57"),
-            ("trans_check", "\u542f\u7528 AI \u7ffb\u8bd1",
-             "\u8c03\u7528 DeepSeek \u7ffb\u8bd1\u6587\u672c"),
+            ("trans_check", "AI \u7ffb\u8bd1",
+             "\u8c03\u7528 DeepSeek \u7ffb\u8bd1\u8bc6\u522b\u7ed3\u679c"),
         ]
         for i, (attr, name, hint) in enumerate(rows):
             toggle = ToggleSwitch()
@@ -544,13 +542,13 @@ class MainWindow(QWidget):
 
         # ---- performance -----------------------------------------------
         perf_card = Card("\u6027\u80fd",
-                         "\u5237\u65b0\u7387\u4e0e\u4e00\u6b21\u6027\u663e\u793a\u65f6\u957f")
+                         "\u5237\u65b0\u7387\u4e0e\u7ed3\u679c\u663e\u793a\u65f6\u957f")
         self._s_fps, self._l_fps = self._add_slider(
-            perf_card, "\u5237\u65b0\u9891\u7387 (FPS)", 1, 30, 10,
+            perf_card, "\u5237\u65b0\u9891\u7387", 1, 30, 10,
             "{:.0f}", 1.0)
         perf_card.add(Divider())
         self._s_once_display, self._l_once_display = self._add_slider(
-            perf_card, "\u4e00\u6b21\u6027\u663e\u793a\u65f6\u957f (\u79d2)",
+            perf_card, "\u7ed3\u679c\u663e\u793a\u65f6\u957f\uff08\u79d2\uff09",
             1, 30, 5, "{:.0f}", 1.0)
         column.addWidget(perf_card)
 
@@ -629,8 +627,14 @@ class MainWindow(QWidget):
         available = screen.availableGeometry().height() if screen else 900
         return max(560, min(880, available - 80))
 
-    def _notify(self, text: str, tone: str = "info", duration: int = 2600) -> None:
-        InfoBar.push(self.shell, text, tone, duration)
+    def _notify(self, text: str, tone: str = "info",
+                duration: int = 2600) -> "InfoBar":
+        # Anchor just above the footer: at the top the bar hid the headline and
+        # the status badge, which is the information the user is looking for.
+        # The bar is click-through, so the footer buttons stay usable.
+        footer_h = 32 + Space.MD
+        y = self.shell.height() - footer_h - InfoBar.HEIGHT - 6
+        return InfoBar.push(self.shell, text, tone, duration, top_margin=y)
 
     # ==================================================================
     # system tray
@@ -763,9 +767,10 @@ class MainWindow(QWidget):
     def _on_hotkey_change(self):
         mod_str = self._hotkey_mod_combo.currentText()
         key_str = self._hotkey_key_combo.currentText()
-        self._hotkey_label.setText(
-            f"\u4e00\u6b21\u6027\u7ffb\u8bd1\u5feb\u6377\u952e\uff1a"
-            f"{mod_str} + {key_str}")
+        hint = (f"\u6309\u4e0b {mod_str} + {key_str} "
+                f"\u53ef\u968f\u65f6\u7ffb\u8bd1\u4e00\u6b21")
+        self._hotkey_mod_combo.setToolTip(hint)
+        self._hotkey_key_combo.setToolTip(hint)
         ui = self.config_manager.get_ui_config()
         ui["once_hotkey_mod"] = mod_str
         ui["once_hotkey_key"] = key_str
@@ -812,9 +817,10 @@ class MainWindow(QWidget):
             self._hotkey_key_combo.setCurrentIndex(idx2)
         self._hotkey_mod_combo.blockSignals(False)
         self._hotkey_key_combo.blockSignals(False)
-        self._hotkey_label.setText(
-            f"\u4e00\u6b21\u6027\u7ffb\u8bd1\u5feb\u6377\u952e\uff1a"
-            f"{mod_str} + {key_str}")
+        hint = (f"\u6309\u4e0b {mod_str} + {key_str} "
+                f"\u53ef\u968f\u65f6\u7ffb\u8bd1\u4e00\u6b21")
+        self._hotkey_mod_combo.setToolTip(hint)
+        self._hotkey_key_combo.setToolTip(hint)
 
         if ui.get("show_redbox", False):
             r = self.config_manager.load_region()
@@ -866,8 +872,8 @@ class MainWindow(QWidget):
 
     @staticmethod
     def _region_text(region: dict) -> str:
-        return (f"{region['width']} \u00d7 {region['height']}   "
-                f"({region['x']}, {region['y']})")
+        return (f"{region['width']} \u00d7 {region['height']}"
+                f"   \u00b7   ({region['x']}, {region['y']})")
 
     def _save_ui(self):
         ui = self.config_manager.get_ui_config()
@@ -1151,7 +1157,7 @@ class MainWindow(QWidget):
         if not self.trans_check.isChecked():
             return "\u672a\u542f\u7528 AI \u7ffb\u8bd1"
         if self._pipeline is not None and not self._pipeline.translation_ready:
-            return "\u672a\u914d\u7f6e DeepSeek \u5bc6\u94a5"
+            return "\u672a\u914d\u7f6e API \u5bc6\u94a5"
         return ""
 
     def _set_once_done(self, text: str, state: str) -> None:
@@ -1327,14 +1333,12 @@ class MainWindow(QWidget):
             return
         boxes = (self._pipeline.overlay._boxes
                  if hasattr(self._pipeline.overlay, "_boxes") else [])
-        static = getattr(self._pipeline, "is_static", True)
         trans_count = getattr(self._pipeline, "trans_count", 0)
 
         self._chip_fps.set_value(self._pipeline.fps, animate_change=False)
         self._chip_boxes.set_value(len(boxes), animate_change=False)
         self._chip_trans.set_value(trans_count, animate_change=False)
-        mode = "\u9759\u6001" if static else "\u52a8\u6001"
-        self.status_badge.set_state(f"{mode} \u8bc6\u522b\u4e2d", "running")
+        self.status_badge.set_state("\u8fd0\u884c\u4e2d", "running")
         self._update_tray_menu()
 
     # ==================================================================

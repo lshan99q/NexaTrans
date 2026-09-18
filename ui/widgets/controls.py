@@ -20,12 +20,15 @@ from PySide6.QtCore import QEasingCurve, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QCheckBox, QSlider
 
-from ui.theme import Motion, mix, qc, theme, ui_font
+from ui.theme import Motion, mix, qc, scale_alpha, theme, ui_font
 from ui.widgets.anim import animate, stop_animation
 
 
 class ToggleSwitch(QCheckBox):
     """WinUI 3 style toggle switch (drop-in replacement for a checkbox)."""
+
+    #: marks this control as row-toggleable for SettingsRow
+    toggleable = True
 
     WIDTH = 40
     HEIGHT = 20
@@ -95,6 +98,16 @@ class ToggleSwitch(QCheckBox):
     def sizeHint(self) -> QSize:
         return QSize(self.WIDTH, self.HEIGHT)
 
+    def hitButton(self, pos) -> bool:          # noqa: N802
+        """
+        The whole pill is clickable.
+
+        ``QCheckBox.hitButton()`` only accepts the rect of the style's checkbox
+        *indicator* - for this custom-painted switch that is roughly the left
+        third of the widget, so clicking the right half silently did nothing.
+        """
+        return self.rect().contains(pos)
+
     # -- painting ----------------------------------------------------------
 
     def paintEvent(self, event):
@@ -111,7 +124,7 @@ class ToggleSwitch(QCheckBox):
         # --- rail ---------------------------------------------------------
         if not enabled:
             painter.setPen(QPen(qc(t.control_stroke), 1.0))
-            painter.setBrush(qc(t.control_disabled, 90))
+            painter.setBrush(scale_alpha(t.control_disabled, 0.8))
             painter.drawRoundedRect(rail, radius, radius)
         elif p <= 0.01:
             # off: transparent with a strong stroke

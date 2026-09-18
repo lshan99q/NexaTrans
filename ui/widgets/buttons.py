@@ -18,7 +18,8 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QPushButton
 
 from ui.theme import (
-    Motion, Radius, darken, lighten, mix, qc, rounded_path, theme, ui_font,
+    Motion, Radius, darken, lighten, mix, qc, rounded_path, scale_alpha,
+    theme, ui_font,
 )
 from ui.widgets.anim import animate
 
@@ -288,7 +289,7 @@ class IconButton(QPushButton):
         level = max(self._hover, self._press)
         if level > 0.01 and self.isEnabled():
             painter.setPen(Qt.NoPen)
-            painter.setBrush(qc(t.subtle_hover, int(255 * level)))
+            painter.setBrush(scale_alpha(t.subtle_hover, level))
             painter.drawPath(path)
 
         fg = qc(getattr(t, self._tone, t.text)) if self.isEnabled() \
@@ -363,7 +364,7 @@ class CaptionButton(QPushButton):
             if self._kind == self.CLOSE:
                 color = mix(qc(t.window), self.CLOSE_HOVER, self._hover)
             else:
-                color = qc(t.subtle_hover, int(255 * self._hover))
+                color = scale_alpha(t.subtle_hover, self._hover)
             painter.setPen(Qt.NoPen)
             painter.setBrush(color)
             painter.drawRect(rect)

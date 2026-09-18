@@ -17,7 +17,9 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QWidget
 
-from ui.theme import Radius, qc, rounded_path, theme, ui_font
+from ui.theme import (
+    Radius, qc, rounded_path, scale_alpha, theme, ui_font,
+)
 
 logger = logging.getLogger("NexaTrans.Selector")
 
@@ -237,19 +239,19 @@ class SelectorWindow(QWidget):
         alpha = self._intro
 
         painter.setPen(Qt.NoPen)
-        painter.setBrush(qc(t.flyout, int(255 * alpha)))
+        painter.setBrush(scale_alpha(t.flyout, alpha))
         painter.drawPath(rounded_path(card, Radius.CARD))
         painter.setBrush(Qt.NoBrush)
         painter.setPen(QPen(qc(t.card_stroke), 1.0))
         painter.drawPath(rounded_path(card.adjusted(0.5, 0.5, -0.5, -0.5),
                                       Radius.CARD - 0.5))
 
-        painter.setPen(qc(t.text, int(255 * alpha)))
+        painter.setPen(scale_alpha(t.text, alpha))
         painter.setFont(title_font)
         painter.drawText(QRectF(card.left(), card.top() + 20, card.width(), 26),
                          Qt.AlignCenter, title)
 
-        painter.setPen(qc(t.text_secondary, int(255 * alpha)))
+        painter.setPen(scale_alpha(t.text_secondary, alpha))
         painter.setFont(sub_font)
         painter.drawText(QRectF(card.left(), card.top() + 52, card.width(), 20),
                          Qt.AlignCenter, sub)
@@ -313,7 +315,7 @@ class SelectorWindow(QWidget):
 
     def _draw_too_small(self, painter, win_w, win_h):
         t = theme()
-        alpha = int(255 * self._too_small)
+        level = self._too_small          # 0..1 fade factor
         text = "\u533a\u57df\u592a\u5c0f\uff0c\u8bf7\u91cd\u65b0\u6846\u9009"
         font = ui_font(14, QFont.DemiBold)
         painter.setFont(font)
@@ -322,13 +324,13 @@ class SelectorWindow(QWidget):
         badge = QRectF((win_w - bw) / 2, win_h / 2 - 24, bw, 48)
 
         painter.setPen(Qt.NoPen)
-        painter.setBrush(qc(t.flyout, alpha))
+        painter.setBrush(scale_alpha(t.flyout, level))
         painter.drawPath(rounded_path(badge, Radius.CARD))
         painter.setBrush(Qt.NoBrush)
-        painter.setPen(QPen(qc(t.critical, alpha), 1.0))
+        painter.setPen(QPen(scale_alpha(t.critical, level), 1.0))
         painter.drawPath(rounded_path(badge.adjusted(0.5, 0.5, -0.5, -0.5),
                                       Radius.CARD - 0.5))
-        painter.setPen(qc(t.text, alpha))
+        painter.setPen(scale_alpha(t.text, level))
         painter.drawText(badge, Qt.AlignCenter, text)
 
     def closeEvent(self, event):
