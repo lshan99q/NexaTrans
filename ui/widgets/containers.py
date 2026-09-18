@@ -64,7 +64,7 @@ class Card(QFrame):
     """Win11 settings card: optional header row plus a body layout."""
 
     def __init__(self, title: str = "", subtitle: str = "",
-                 parent=None):
+                 action: QWidget | None = None, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_StyledBackground, False)
 
@@ -73,6 +73,7 @@ class Card(QFrame):
         outer.setSpacing(Space.MD)
 
         self.header: QHBoxLayout | None = None
+        self.header_action: QWidget | None = None
         if title:
             header = QHBoxLayout()
             header.setSpacing(Space.MD)
@@ -87,6 +88,10 @@ class Card(QFrame):
                 s.setWordWrap(True)
                 column.addWidget(s)
             header.addLayout(column, 1)
+            if action is not None:
+                # section-level action, e.g. "restore defaults"
+                self.header_action = action
+                header.addWidget(action, 0, Qt.AlignVCenter)
             self.header = header
             outer.addLayout(header)
 

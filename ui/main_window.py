@@ -521,8 +521,17 @@ class MainWindow(QWidget):
         column.addWidget(overlay_card)
 
         # ---- filters ---------------------------------------------------
+        self.reset_filter_btn = FluentButton("\u6062\u590d\u9ed8\u8ba4",
+                                             "standard", font_size=13)
+        self.reset_filter_btn.setMinimumHeight(30)
+        self.reset_filter_btn.setFixedWidth(84)
+        self.reset_filter_btn.setToolTip(
+            "\u5c06\u4e0b\u9762\u56db\u9879\u6062\u590d\u4e3a\u9ed8\u8ba4\u503c")
+        self.reset_filter_btn.clicked.connect(self._on_reset_filter_defaults)
+
         filter_card = Card("\u6587\u5b57\u8fc7\u6ee4\u53c2\u6570",
-                           "\u8c03\u6574\u68c0\u6d4b\u7ed3\u679c\u7684\u7cbe\u7ec6\u5ea6")
+                           "\u8c03\u6574\u68c0\u6d4b\u7ed3\u679c\u7684\u7cbe\u7ec6\u5ea6",
+                           action=self.reset_filter_btn)
         self._s_min_conf, self._l_min_conf = self._add_slider(
             filter_card, "\u6700\u4f4e\u7f6e\u4fe1\u5ea6", 10, 90, 50,
             "{:.2f}", 100.0)
@@ -901,6 +910,35 @@ class MainWindow(QWidget):
         tp = self.config_manager.get_text_processing_config()
         tp[key] = val
         self.config_manager.save_text_processing(tp)
+
+    #: sliders shown in the "文字过滤参数" card and their config keys
+    FILTER_KEYS = ("min_confidence", "min_text_aspect",
+                   "max_icon_aspect", "min_area_ratio")
+
+    @staticmethod
+    def _filter_defaults() -> dict:
+        """Defaults for the filter card, straight from the config module."""
+        from config.config_manager import DEFAULT_CONFIG
+        tp = DEFAULT_CONFIG["text_processing"]
+        return {k: tp[k] for k in MainWindow.FILTER_KEYS}
+
+    def _on_reset_filter_defaults(self):
+        """Restore the four filter sliders to their shipped defaults."""
+        defaults = self._filter_defaults()
+
+        tp = self.config_manager.get_text_processing_config()
+        tp.update(defaults)
+        self.config_manager.save_text_processing(tp)
+
+        # setValue also refreshes the value chips and re-saves each key
+        self._s_min_conf.setValue(int(round(defaults["min_confidence"] * 100)))
+        self._s_min_asp.setValue(int(round(defaults["min_text_aspect"] * 10)))
+        self._s_max_icon.setValue(int(round(defaults["max_icon_aspect"] * 10)))
+        self._s_min_area.setValue(int(round(defaults["min_area_ratio"] * 1000)))
+
+        logger.info(f"Filter parameters restored to defaults: {defaults}")
+        self._notify("\u6587\u5b57\u8fc7\u6ee4\u53c2\u6570\u5df2\u6062\u590d\u9ed8\u8ba4\u503c",
+                     "success")
 
     def _on_fps_change(self, v):
         if not self._settings_built:

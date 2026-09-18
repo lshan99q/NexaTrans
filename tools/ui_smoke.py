@@ -140,6 +140,37 @@ def main() -> int:
         check("filter value chip formatted",
               window._l_min_conf.text() == "0.72", window._l_min_conf.text())
 
+        print("\nrestore filter defaults")
+        window._s_min_conf.setValue(85)
+        window._s_min_asp.setValue(27)
+        window._s_max_icon.setValue(17)
+        window._s_min_area.setValue(19)
+        pump(app, 120)
+        check("filter sliders are off-default before the reset",
+              window._s_min_conf.value() == 85
+              and window._s_min_area.value() == 19)
+        window.reset_filter_btn.click()
+        pump(app, 150)
+        check("restore-defaults resets every filter slider",
+              (window._s_min_conf.value(), window._s_min_asp.value(),
+               window._s_max_icon.value(), window._s_min_area.value())
+              == (50, 18, 14, 5),
+              f"{window._s_min_conf.value()}/{window._s_min_asp.value()}/"
+              f"{window._s_max_icon.value()}/{window._s_min_area.value()}")
+        stored = config.get_text_processing_config()
+        check("restore-defaults persists the defaults",
+              abs(stored["min_confidence"] - 0.5) < 1e-6
+              and abs(stored["min_text_aspect"] - 1.8) < 1e-6
+              and abs(stored["max_icon_aspect"] - 1.4) < 1e-6
+              and abs(stored["min_area_ratio"] - 0.005) < 1e-6,
+              str({k: stored[k] for k in MainWindow.FILTER_KEYS}))
+        check("restore-defaults refreshes the value chips",
+              window._l_min_conf.text() == "0.50"
+              and window._l_min_area.text() == "0.005",
+              f"{window._l_min_conf.text()} / {window._l_min_area.text()}")
+        check("restore-defaults leaves unrelated config alone",
+              config.get_ui_config()["fps_target"] == 24)
+
         print("\npage transition")
         home_h = window.height()
         window.settings_btn.click()
